@@ -29,19 +29,65 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
+ * Trivial binary buffer encoder. Assumes packed.
+ * ****************************************************************************
  */
 
-#include <BufferDecode.hpp>
-#include <BufferEncode.hpp>
+#ifndef BUFFER_ENCODE_HPP
+#define BUFFER_ENCODE_HPP
 
-#ifdef MISCCPP_HAVE_ZEROMQ
-#include <zmq.hpp>
-#endif // MISCCPP_HAVE_ZEROMQ
+#include <stdint.h>
+#include <stddef.h>
+#include <cstring>
+#include <vector>
+#include <tuple>
 
-#ifdef MISCCPP_HAVE_NANOMSG
-#include <nanomsg.hpp>
-#endif // MISCCPP_HAVE_NANOMSG
+class BufferEncode
+{
+public:
+    explicit BufferEncode(std::size_t init_ptr = 0) : m_ptr(init_ptr), m_init_ptr(init_ptr) { }
+    
+    size_t getCurrentSize() const { return m_ptr - m_init_ptr; }
+    void reset() { m_ptr = m_init_ptr; m_operations.clear(); }
+    void skip(size_t bytes) { m_ptr += bytes; }
+    
+    void encodeTo(void* buffer)
+    {
+        uint8_t* data = static_cast<uint8_t*>(buffer);
+        
+        for(operations_t::value_type& op : m_operations)
+        {
+            // mover - dest at location , src const ptr, num-bytes
+            memcpy(&(data[std::get<0>(op)]), std::get<2>(op), std::get<1>(op));
+        }
+    }
+    
+    template<typename T>
+    void write(const T* v)
+    {
+        m_operations.push_back(std::make_tuple(m_ptr, sizeof(T), static_cast<const void*>(v)));
+        m_ptr += sizeof(T);
+    }
+    
+    void write(const void* buffer, std::size_t size)
+    {
+        m_operations.push_back(std::make_tuple(m_ptr, size, buffer));
+        m_ptr += size;
+    }
+    
+    void write(const std::string& s)
+    {
+        size_t ssize = s.length() + 1;
+        m_operations.push_back(std::make_tuple(m_ptr, ssize, s.data()));
+        m_ptr += ssize;
+    }
+    
+private:
+    typedef std::vector<std::tuple<std::size_t,std::size_t,const void*> > operations_t;
+    
+    std::size_t m_ptr;
+    std::size_t m_init_ptr;
+    operations_t m_operations;
+};
 
-#ifdef MISCCPP_HAVE_CEREAL
-#include <cereal_raw_binary.hpp>
-#endif // MISCCPP_HAVE_CEREAL
+#endif // BUFFER_ENCODE_HPP

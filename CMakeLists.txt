@@ -86,22 +86,34 @@ find_package(ZeroMQ QUIET)
 find_package(NanoMSG QUIET)
 find_package(Snappy QUIET)
 
-# ------------------------------------------------------------------------------
-# Our headers
-# ------------------------------------------------------------------------------
-include_directories(.)
-
 # ---------------------------------------------
 # List of sources
 # ---------------------------------------------
 set(HEADERS
-include/zmq.hpp
-include/nanomsg.hpp
+include/BufferDecode.hpp
+include/BufferEncode.hpp
 )
 
 set(SOURCES
 sources/MiscCpp.cpp
 )
+
+if(ZEROMQ_FOUND)
+    list(APPEND HEADERS include/zmq.hpp)
+endif()
+
+if(NANOMSG_FOUND)
+    list(APPEND HEADERS include/nanomsg.hpp)
+endif()
+
+if(SNAPPY_FOUND)
+    list(APPEND HEADERS include/snappy.hpp)
+    list(APPEND SOURCES sources/snappy.cpp)
+endif()
+
+if(cereal_FOUND)
+    list(APPEND HEADERS include/cereal_raw_binary.hpp)
+endif()
 
 # ------------------------------------------------------------------------------
 # Build
@@ -125,9 +137,9 @@ if(NANOMSG_FOUND)
 endif()
 
 if(SNAPPY_FOUND)
-    target_link_libraries(${PROJECT_NAME} PUBLIC ${SNAPPY_LIBRARIES})
-    target_include_directories(${PROJECT_NAME} PUBLIC ${SNAPPY_INCLUDE_DIR})
-    target_compile_definitions(${PROJECT_NAME} PUBLIC MISCCPP_HAVE_SNAPPY)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${SNAPPY_LIBRARIES})
+    target_include_directories(${PROJECT_NAME} PRIVATE ${SNAPPY_INCLUDE_DIR})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE MISCCPP_HAVE_SNAPPY)
 endif()
     
 if(cereal_FOUND)

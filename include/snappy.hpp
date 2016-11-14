@@ -29,19 +29,45 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
+ * Snappy Compression C++ Wrappers.
+ * ****************************************************************************
  */
 
-#include <BufferDecode.hpp>
-#include <BufferEncode.hpp>
+#ifndef SNAPPY_HPP
+#define SNAPPY_HPP
 
-#ifdef MISCCPP_HAVE_ZEROMQ
-#include <zmq.hpp>
-#endif // MISCCPP_HAVE_ZEROMQ
+namespace snappy
+{
+    
+class CompressedBuffer
+{
+public:
+    CompressedBuffer();
+    virtual ~CompressedBuffer();
+    
+    CompressedBuffer(const CompressedBuffer& other);
+    CompressedBuffer(CompressedBuffer&& other);
+    CompressedBuffer(const void* ptr, std::size_t s);
+    
+    CompressedBuffer& operator=(const CompressedBuffer& other);
+    CompressedBuffer& operator=(CompressedBuffer&& other);
+    
+    void reset(const void* ptr, std::size_t s);
+    bool isValid() const;
+    
+    const void* compressedData() const { return comp_ptr; }
+    std::size_t compressedSize() const { return comp_len; }
+    std::size_t uncompressedSize() const;
+    
+    bool uncompress(void* outbuf);
+private:
+    const void* comp_ptr;
+    std::size_t comp_len;
+};
 
-#ifdef MISCCPP_HAVE_NANOMSG
-#include <nanomsg.hpp>
-#endif // MISCCPP_HAVE_NANOMSG
+std::size_t maxCompressedSize(std::size_t uncomp_len);
+std::size_t compress(const void* uncomp_ptr, std::size_t uncomp_len, void* comp_ptr);
+    
+}
 
-#ifdef MISCCPP_HAVE_CEREAL
-#include <cereal_raw_binary.hpp>
-#endif // MISCCPP_HAVE_CEREAL
+#endif // SNAPPY_HPP
