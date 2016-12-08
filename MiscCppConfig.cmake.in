@@ -1,6 +1,8 @@
 include(CMakeFindDependencyMacro)
 
-find_dependency(cereal QUIET)
+if(@cereal_FOUND@)
+    find_dependency(cereal QUIET)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/MiscCppTargets.cmake")
 
