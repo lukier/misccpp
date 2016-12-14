@@ -55,7 +55,8 @@ add_compile_options(-Wall -Wextra -pedantic -Wno-unused-parameter -Wno-unused-va
 # Ready for testing
 # ------------------------------------------------------------------------------
 option(BUILD_TESTS "Enable to build unit tests" ON)
-if(BUILD_TESTS)
+find_package(GTest QUIET)
+if(BUILD_TESTS AND GTest_FOUND)
   enable_testing()
     
   # Code Coverage Build Type
@@ -150,7 +151,7 @@ endif()
 # ------------------------------------------------------------------------------
 # Unit Tests
 # ------------------------------------------------------------------------------
-if(BUILD_TESTS)
+if(BUILD_TESTS AND GTest_FOUND)
     add_subdirectory(tests)
 endif()
 
