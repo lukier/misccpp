@@ -38,7 +38,7 @@
 
 #include <snappy.h>
 
-#include <snappy.hpp>
+#include <misccpp/snappy.hpp>
 
 std::size_t snappy::maxCompressedSize(std::size_t uncomp_len)
 {
