@@ -49,6 +49,9 @@ public:
     typedef typename IO_MASTER::message_t master_message_t;
     typedef typename IO_SLAVE::message_t slave_message_t;
     
+    static_assert(IO_MASTER::NeedsKnownInputMessage == false, "Unknown receive message not supported yet");
+    static_assert(IO_SLAVE::NeedsKnownInputMessage == false, "Unknown receive message not supported yet");
+    
     Bridge() = delete;
     Bridge(IO_MASTER& iom, IO_SLAVE& ios) : master_io(iom), slave_io(ios) { }
     virtual ~Bridge() { }
@@ -64,48 +67,38 @@ public:
     inline Bridge& operator=(Bridge&& m) noexcept { master_io = std::move(m.master_io); slave_io = std::move(m.slave_io); return *this; }
     
 protected:
-    static constexpr bool canForwardMasterToSlave()
+    template<typename _Rep1 = int64_t, typename _Period1 = std::ratio<1>, typename _Rep2 = int64_t, typename _Period2 = std::ratio<1>>
+    Error forwardMasterToSlave(const std::chrono::duration<_Rep1, _Period1>& timeout_master = std::chrono::seconds(0), const std::chrono::duration<_Rep2, _Period2>& timeout_slave = std::chrono::seconds(0))
     {
-        return !((IO_MASTER::Access == AccessT::W) && (IO_SLAVE::Access == AccessT::R));
-    }
-    
-    Error forwardMasterToSlave(int timeout_ms = 0, int timeout_sl = 0)
-    {
-        if(!canForwardMasterToSlave()) { return Error::Unsupported; }
         Error rc = Error::OK;
         
         master_message_t msg_in;
-        rc = master_io.receive(msg_in, timeout_ms);
+        rc = master_io.receive(msg_in, timeout_master);
         if(rc != Error::OK) { return rc; }
         
         slave_message_t msg_out(msg_in.size(), msg_in.getChannelID(), msg_in.getNodeID());
         if(msg_out.data() == 0) { return Error::OutOfMemory; }
         
         memcpy(msg_out.data(), msg_in.data(), msg_in.size()); // @note memcpy
-        rc = slave_io.transmit(msg_out, timeout_sl);
+        rc = slave_io.transmit(msg_out, timeout_slave);
         
         return rc;
     }
     
-    static constexpr bool canForwardSlaveToMaster()
+    template<typename _Rep1 = int64_t, typename _Period1 = std::ratio<1>, typename _Rep2 = int64_t, typename _Period2 = std::ratio<1>>
+    Error forwardSlaveToMaster(const std::chrono::duration<_Rep1, _Period1>& timeout_master = std::chrono::seconds(0), const std::chrono::duration<_Rep2, _Period2>& timeout_slave = std::chrono::seconds(0))
     {
-        return !((IO_SLAVE::Access == AccessT::W) && (IO_MASTER::Access == AccessT::R));
-    }
-    
-    Error forwardSlaveToMaster(int timeout_ms = 0, int timeout_sl = 0)
-    {
-        if(!canForwardSlaveToMaster()) { return Error::Unsupported; }
         Error rc = Error::OK;
         
         slave_message_t msg_in;
-        rc = slave_io.receive(msg_in, timeout_sl);
+        rc = slave_io.receive(msg_in, timeout_slave);
         if(rc != Error::OK) { return rc; }
         
         master_message_t msg_out(msg_in.size(), msg_in.getChannelID(), msg_in.getNodeID());
         if(msg_out.data() == 0) { return Error::OutOfMemory; }
         
         memcpy(msg_out.data(), msg_in.data(), msg_in.size()); // @note memcpy
-        rc = master_io.transmit(msg_out, timeout_ms);
+        rc = master_io.transmit(msg_out, timeout_master);
         return rc;
     }
 private:

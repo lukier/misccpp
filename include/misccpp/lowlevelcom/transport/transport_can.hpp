@@ -29,63 +29,143 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Linux SocketCAN based low level transport.
+ * Linux SocketCAN based transport.
  * ****************************************************************************
  */
 #ifndef LOWLEVELCOM_TRANSPORT_CAN_HPP
 #define LOWLEVELCOM_TRANSPORT_CAN_HPP
 
+#include <array>
+#include <tuple>
 #include <mutex>
+#include <memory>
 
 #include <misccpp/lowlevelcom/utils.hpp>
+
+namespace drivers
+{
+class SocketCAN;
+}
 
 namespace llc
 {
     
 namespace transport
 {
-    
-namespace lowlevel
-{
 
-class CAN
+/**
+ * CAN Transport.
+ * NodeID is CAN ID.
+ * Byte data contains optionally only ChannelID. 
+ */
+template<bool MultiChannel = false>
+class CANIO
 {
 public:
-    static constexpr bool RequiresChannelID = false;
-    static constexpr bool RequiresNodeID = true;
+    static constexpr bool NeedsKnownInputMessage = false;
+    static constexpr bool IsMultiChannel = MultiChannel;
+    static constexpr bool IsMultiNode = true;
     
-    CAN() = delete;
-    CAN(const char* port, bool ufd = false);
-    virtual ~CAN();
+    class message_t
+    {
+    public:
+        static constexpr std::size_t CANMaximumPacketSize = 64;
+        static constexpr std::size_t PrefixRequired = internal::ChannelIDSize<IsMultiChannel>::size;
+        
+        // default constructor
+        explicit message_t() : canid(0), len(0) { }
+        
+        // allocation constructor
+        explicit message_t(std::size_t l, ChannelIDT cid = 0, NodeIDT nid = 0) : canid(0), len(std::max(CANMaximumPacketSize,PrefixRequired + l))
+        { 
+            setChannelID(cid);
+            setNodeID(nid);
+        }
+        
+        // move constructor
+        inline message_t(message_t&& m) noexcept : canid(m.canid), len(m.len), buf(std::move(m.buf)) {  }
+        
+        // move assignment
+        inline message_t& operator=(message_t&& m) noexcept { m.swap(*this); return *this; }
+        
+        // non-copyable
+        message_t(const message_t&) = delete;
+        message_t& operator=(const message_t&) = delete;
+        
+        // destructor
+        inline ~message_t() {  }
+        
+        // access
+        inline const void* data() const { return static_cast<const void*>(getBufferAt(PrefixRequired)); }
+        inline void* data() { return static_cast<void*>(getBufferAt(PrefixRequired)); }
+        inline std::size_t size() const { return len - PrefixRequired; }
+        
+        // has data?
+        inline operator bool () const noexcept { return len != 0; }
+        
+        inline void swap(message_t& m) noexcept { std::swap(buf, m.buf); std::swap(canid, m.canid); std::swap(len, m.len); }
+        
+        static inline constexpr bool supportsChannelID() { return IsMultiChannel; }
+        // optional ChannelID get
+        ChannelIDT getChannelID() const { if(IsMultiChannel) { return *static_cast<const ChannelIDT*>(getBufferAt(0)); } else { return 0; } }
+        // optional ChannelID set
+        inline void setChannelID(ChannelIDT n) { if(IsMultiChannel) { *static_cast<ChannelIDT*>(getBufferAt(0)) = n; } }
+        
+        static inline constexpr bool supportsNodeID() { return IsMultiNode; }
+        // optional NodeID get
+        NodeIDT getNodeID() const { return canid; }
+        // optional NodeID set
+        inline void setNodeID(NodeIDT n) { canid = n; }
+        
+    private:
+        inline const void* getBufferAt(std::size_t offset) const { return static_cast<const void*>(&(buf[offset])); }
+        inline void* getBufferAt(std::size_t offset) { return static_cast<void*>(&(buf[offset])); }
+        
+        friend class CANIO; // for raw access
+        
+        NodeIDT canid;
+        std::size_t len;
+        std::array<uint8_t, CANMaximumPacketSize> buf;
+    };
     
+    CANIO() = delete;
+    
+    CANIO(const char* port, bool usefd = false);
+    virtual ~CANIO();
+
     // non copyable
-    CAN(const CAN&) = delete;
-    CAN& operator=(CAN const&) = delete; 
+    CANIO(const CANIO&) = delete;
+    CANIO& operator=(CANIO const&) = delete; 
     
-    // TODO FIXME move semantics
+    // move constructor
+    inline CANIO(CANIO&& m) noexcept : pimpl(std::move(m.pimpl)) {  }
     
-    // TX
-    Error transmit(const void* ptr, std::size_t len, int timeout);
-    Error transmitStart(ChannelIDT chan_id, NodeIDT node_id, int timeout);
-    Error transmitReset();
-    Error transmitComplete(ChannelIDT chan_id, NodeIDT node_id, int timeout);
+    // move assignment
+    inline CANIO& operator=(CANIO&& m) noexcept { pimpl = std::move(m.pimpl); return *this; }
     
-    // RX
-    Error receive(void* ptr, std::size_t len, int timeout);
-    Error receiveStart(int timeout);
-    Error receiveReset();
-    Error receiveComplete(int timeout);
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error receive(message_t& msg_out, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        const int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
+        return receiveImpl(msg_out, timeout_ms);
+    }
+    
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error transmit(const message_t& msg, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        const int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
+        return transmitImpl(msg, timeout_ms);
+    }
     
     void lock() { safety.lock(); }
     void unlock() { safety.unlock(); }
+
 private:
-    int sock;
-    bool use_fd;
-    llc::NodeIDT tx_node, rx_node;
+    Error receiveImpl(message_t& msg_out, const int timeout_ms);
+    Error transmitImpl(const message_t& msg_out, const int timeout_ms);
+    std::unique_ptr<drivers::SocketCAN> pimpl;
     std::mutex safety;    
 };
-
-}
 
 }
 

@@ -46,7 +46,7 @@ namespace llc
 namespace transport
 {
 
-class Netlink
+class NetlinkIO
 {
 public:
     class message_t
@@ -93,20 +93,33 @@ public:
         mutable struct nlmsghdr* hdr;
     };
     
-    Netlink() = delete;
+    NetlinkIO() = delete;
     
-    Netlink(struct nl_sock* s) : socket(s) { }
-    virtual ~Netlink();
+    NetlinkIO(struct nl_sock* s) : socket(s) { }
+    virtual ~NetlinkIO();
     
     // non copyable
-    Netlink(const Netlink&) = delete;
-    Netlink& operator=(Netlink const&) = delete; 
+    NetlinkIO(const NetlinkIO&) = delete;
+    NetlinkIO& operator=(NetlinkIO const&) = delete; 
     
     // TODO FIXME move semantics
     
-    Error receive(message_t& msg_out, int timeout = 0);
-    Error transmit(const message_t& msg, int timeout = 0);
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error receive(message_t& msg_out, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        const int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
+        return receiveImpl(msg_out, timeout_ms);
+    }
+    
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error transmit(const message_t& msg, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        const int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
+        return transmitImpl(msg, timeout_ms);
+    }
 private:
+    Error receiveImpl(message_t& msg_out, const int timeout_ms);
+    Error transmitImpl(const message_t& msg_out, const int timeout_ms);
     struct nl_sock* socket;
 };
 

@@ -58,11 +58,13 @@ namespace lowlevel
 class SerialPort
 {
 public:
+    static constexpr bool ProvidesFieldsUpdated = false;
     static constexpr bool RequiresChannelID = false;
     static constexpr bool RequiresNodeID = false; 
+    static constexpr bool SupportsFraming = true;
     
     SerialPort() = delete;
-    SerialPort(const std::string& a_ttydev, int a_baudrate = 115200, bool ause_cobs = false, std::size_t acobs_buf_size = 1024*1024);
+    SerialPort(const char* a_ttydev, int a_baudrate = 115200, bool ause_cobs = false, std::size_t acobs_buf_size = 1024*1024);
     virtual ~SerialPort();
     
     // non copyable
@@ -71,13 +73,13 @@ public:
     
     // TODO FIXME move semantics
     
-    Error transmit(const void* ptr, std::size_t len, int timeout);
+    Error transmit(const void* ptr, PayloadLengthT len, int timeout);
     Error transmitStart(ChannelIDT chan_id, NodeIDT node_id, int timeout);
     Error transmitReset();
     Error transmitComplete(ChannelIDT chan_id, NodeIDT node_id, int timeout);
     
-    Error receive(void* ptr, std::size_t len, int timeout);
-    Error receiveStart(int timeout);
+    Error receive(void* ptr, PayloadLengthT len, int timeout);
+    Error receiveStart(PayloadLengthT& len, ChannelIDT& chan_id, NodeIDT& node_id, int timeout);
     Error receiveReset();
     Error receiveComplete(int timeout);
     

@@ -46,7 +46,7 @@
 
 namespace llc
 {
-    
+//     
 namespace internal
 {
     template <bool... b> struct static_all_of;
@@ -62,8 +62,8 @@ namespace internal
     // end recursion if no more arguments need to be processed
     template <> struct static_all_of<> : std::true_type {};
     
-    template<typename MASTER_MSG_T, typename SLAVEIOT>
-    static Error slave_receive_final(SLAVEIOT& sio, ChannelIDT cid, MASTER_MSG_T& msg_out, int timeout)
+    template<typename MASTER_MSG_T, typename SLAVEIOT, typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    static Error slave_receive_final(SLAVEIOT& sio, ChannelIDT cid, MASTER_MSG_T& msg_out, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         typedef MASTER_MSG_T master_message_t;
         typedef typename SLAVEIOT::message_t slave_message_t;
@@ -75,14 +75,8 @@ namespace internal
         rc = sio.receive(msg_in, timeout);
         if(rc != Error::OK) { return rc; }
         
-        // potentially serious
-        if(msg_in.getChannelID() != cid)
-        {
-            return Error::ChannelError;
-        }
-        
         // create master message
-        msg_out = master_message_t(msg_in.size(), msg_in.getChannelID(), msg_in.getNodeID());
+        msg_out = master_message_t(msg_in.size(), cid, msg_in.getNodeID());
         if(msg_out.data() == 0) { return Error::OutOfMemory; }
         
         /// @note memcopy
@@ -94,7 +88,8 @@ namespace internal
     template<typename MASTER_MSG_T, int index, typename... SLAVE_IOS>
     struct slave_receive 
     {
-        Error operator()(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, int timeout, std::tuple<SLAVE_IOS...>& t) 
+        template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+        Error operator()(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, const std::chrono::duration<_Rep, _Period>& timeout, std::tuple<SLAVE_IOS...>& t) 
         {
             if(index == idx)
             {
@@ -114,7 +109,8 @@ namespace internal
     {
         static constexpr int index = 0;
         
-        Error operator()(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, int timeout, std::tuple<SLAVE_IOS...>& t) 
+        template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+        Error operator()(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, const std::chrono::duration<_Rep, _Period>& timeout, std::tuple<SLAVE_IOS...>& t) 
         {
             if(index == idx)
             {
@@ -128,8 +124,8 @@ namespace internal
         }
     };
     
-    template<typename SLAVEIOT>
-    static Error slave_transmit_final(SLAVEIOT& sio, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, int timeout)
+    template<typename SLAVEIOT, typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    static Error slave_transmit_final(SLAVEIOT& sio, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         typedef typename SLAVEIOT::message_t slave_message_t;
         
@@ -139,7 +135,7 @@ namespace internal
         slave_message_t msg_in(len, cid, nid);
         if(msg_in.data() == 0) { return Error::OutOfMemory; }
         
-        /// @note memcopy
+        /// @note memcopy TODO FIXME provide void* constructors for all messages, but then msg_in data will disappear quickly!
         std::memcpy(msg_in.data(), data, len);
         
         // transmit
@@ -151,7 +147,8 @@ namespace internal
     template<int index, typename... SLAVE_IOS>
     struct slave_transmit 
     {
-        Error operator()(std::size_t idx, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, int timeout, std::tuple<SLAVE_IOS...>& t) 
+        template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+        Error operator()(std::size_t idx, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, const std::chrono::duration<_Rep, _Period>& timeout, std::tuple<SLAVE_IOS...>& t) 
         {
             if(index == idx)
             {
@@ -171,7 +168,8 @@ namespace internal
     {
         static constexpr int index = 0;
         
-        Error operator()(std::size_t idx, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, int timeout, std::tuple<SLAVE_IOS...>& t) 
+        template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+        Error operator()(std::size_t idx, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, const std::chrono::duration<_Rep, _Period>& timeout, std::tuple<SLAVE_IOS...>& t) 
         {
             if(index == idx)
             {
@@ -198,11 +196,13 @@ class Multiplexer
 {
 public:    
     typedef typename IO_MASTER::message_t master_message_t;
-    
     static constexpr std::size_t SlaveCount = sizeof...(IO_SLAVE_PAIRS);
     
     static_assert(IO_MASTER::message_t::supportsChannelID() == true, "Master Transceiver must support ChannelID");
-    static_assert(internal::static_all_of<IO_SLAVE_PAIRS::SlaveT::message_t::supportsChannelID()...>::value, "Slave Transceivers must support ChannelID");
+    static_assert(IO_MASTER::NeedsKnownInputMessage == false, "Unknown receive message not supported yet");
+    
+    //static_assert(internal::static_all_of<IO_SLAVE_PAIRS::SlaveT::message_t::supportsChannelID()...>::value, "Slave Transceivers must support ChannelID");
+    static_assert(internal::static_all_of<IO_SLAVE_PAIRS::SlaveT::NeedsKnownInputMessage == false...>::value, "Unknown receive message not supported yet");
     
     Multiplexer() = delete;
     Multiplexer(IO_MASTER& iom, typename IO_SLAVE_PAIRS::SlaveT& ...ios) : master_io(iom), slave_ios(std::forward<typename IO_SLAVE_PAIRS::SlaveT&>(ios)...) 
@@ -224,23 +224,25 @@ public:
     // TODO FIXME move semantics
     
 protected:
-    Error forwardMasterToSlave(int timeout_ms = 0, int timeout_sl = 0)
+    template<typename _Rep1 = int64_t, typename _Period1 = std::ratio<1>, typename _Rep2 = int64_t, typename _Period2 = std::ratio<1>>
+    Error forwardMasterToSlave(const std::chrono::duration<_Rep1, _Period1>& timeout_master = std::chrono::seconds(0), const std::chrono::duration<_Rep2, _Period2>& timeout_slave = std::chrono::seconds(0))
     {
         Error rc = Error::OK;
         
         // receive with prefix
         master_message_t msg_in;
-        rc = master_io.receive(msg_in, timeout_ms);
+        rc = master_io.receive(msg_in, timeout_master);
         if(rc != Error::OK) { return rc; }
         
         // delegate this ugly job
-        rc = transmitToSlave(msg_in.getChannelID(), msg_in.getNodeID(), msg_in.size(), msg_in.data(), timeout_sl);
+        rc = transmitToSlave(msg_in.getChannelID(), msg_in.getNodeID(), msg_in.size(), msg_in.data(), timeout_slave);
         if(rc != Error::OK) { return rc; }
         
         return rc;
     }
     
-    Error forwardSlaveToMaster(std::size_t slave_idx, int timeout_ms = 0, int timeout_sl = 0)
+    template<typename _Rep1 = int64_t, typename _Period1 = std::ratio<1>, typename _Rep2 = int64_t, typename _Period2 = std::ratio<1>>
+    Error forwardSlaveToMaster(std::size_t slave_idx, const std::chrono::duration<_Rep1, _Period1>& timeout_master = std::chrono::seconds(0), const std::chrono::duration<_Rep2, _Period2>& timeout_slave = std::chrono::seconds(0))
     {
         Error rc = Error::OK;
         
@@ -253,29 +255,30 @@ protected:
         master_message_t msg_out;
         
         // well this is difficult
-        rc = receiveFromSlave<master_message_t>(slave_idx, cid, msg_out, timeout_sl);
+        rc = receiveFromSlave<master_message_t>(slave_idx, cid, msg_out, timeout_slave);
         if(rc != Error::OK) { return rc; }
 
         // transmit to master
-        rc = master_io.transmit(msg_out, timeout_ms);
+        rc = master_io.transmit(msg_out, timeout_master);
 
         return rc;
     }
 
 private:
-    template<typename... SLAVE_IOS>
-    Error for_each_slave_transmit_start(std::size_t idx, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, int timeout, std::tuple<SLAVE_IOS...>& tup)
+    template<typename _Rep, typename _Period, typename... SLAVE_IOS>
+    Error for_each_slave_transmit_start(std::size_t idx, ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, const std::chrono::duration<_Rep, _Period>& timeout, std::tuple<SLAVE_IOS...>& tup)
     {
         return internal::slave_transmit<std::tuple_size<std::tuple<SLAVE_IOS...>>::value - 1, SLAVE_IOS...>{}(idx, cid, nid, len, data, timeout, tup);
     }
     
-    template<typename MASTER_MSG_T, typename... SLAVE_IOS>
-    Error for_each_slave_receive_start(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, int timeout, std::tuple<SLAVE_IOS...>& tup)
+    template<typename MASTER_MSG_T, typename _Rep, typename _Period, typename... SLAVE_IOS>
+    Error for_each_slave_receive_start(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, const std::chrono::duration<_Rep, _Period>& timeout, std::tuple<SLAVE_IOS...>& tup)
     {
         return internal::slave_receive<MASTER_MSG_T, std::tuple_size<std::tuple<SLAVE_IOS...>>::value - 1, SLAVE_IOS...>{}(idx, cid, msg_out, timeout, tup);
     }
     
-    Error transmitToSlave(ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, int timeout)
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error transmitToSlave(ChannelIDT cid, NodeIDT nid, std::size_t len, const void* data, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         int idx = -1;
         // find index
@@ -297,8 +300,8 @@ private:
         }
     }
     
-    template<typename MASTER_MSG_T>
-    Error receiveFromSlave(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, int timeout)
+    template<typename MASTER_MSG_T, typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error receiveFromSlave(std::size_t idx, ChannelIDT cid, MASTER_MSG_T& msg_out, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         return for_each_slave_receive_start<MASTER_MSG_T>(idx, cid, msg_out, timeout, slave_ios);
     }

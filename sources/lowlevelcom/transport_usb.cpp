@@ -33,142 +33,34 @@
  * ****************************************************************************
  */
 #include <stdexcept>
-#include <libusb.h>
+
+#include <misccpp/drivers/DevUSB.hpp>
 
 #include <misccpp/lowlevelcom/transport/transport_usb.hpp>
 
-llc::transport::lowlevel::USB::USB(uint16_t a_vid, uint16_t a_pid, uint8_t a_ep_in, uint8_t a_ep_out) : ep_in(0xFF), ep_out(0xFF), interface_number(-1)
+llc::transport::lowlevel::USB::USB(uint16_t a_vid, uint16_t a_pid, uint8_t a_ep_in, uint8_t a_ep_out) : pimpl(new drivers::DevUSB())
 {
-    int r = libusb_init(&usbctx); //initialize a library session
-    if(r < 0) 
-    {
-        throw std::runtime_error("libusb init error");
-    }
-    
-    libusb_set_debug(usbctx, 3); //set verbosity level to 3, as suggested in the documentation
-    
-    devh = libusb_open_device_with_vid_pid(usbctx, a_vid, a_pid);
-    
-    if(devh == 0)
-    {
-        libusb_exit(usbctx); //close the session
-        usbctx = 0;
-        throw std::runtime_error("No libusb device");
-    }
-    
-    dev = libusb_get_device(devh);
-    
-    if(dev == 0)
-    {
-        libusb_exit(usbctx); //close the session
-        usbctx = 0;
-        throw std::runtime_error("libusb get_device error");
-    }
-    
-    // get endpoints for our interface
-    libusb_config_descriptor *config;
-    
-    libusb_get_config_descriptor(dev, 0, &config);
-    
-    const libusb_interface *inter;
-    const libusb_interface_descriptor *interdesc;
-    const libusb_endpoint_descriptor *epdesc;
-    
-    for(int i = 0; i < (int)config->bNumInterfaces; i++) 
-    {
-        inter = &config->interface[i];
-        for(int j = 0; j < inter->num_altsetting; j++) 
-        {
-            interdesc = &inter->altsetting[j];
-            if(interdesc->bInterfaceClass == 0xFF) // vendor
-            {
-                interface_number = interdesc->bInterfaceNumber;
-                
-                for(int k = 0; k < (int)interdesc->bNumEndpoints; k++)
-                {
-                    epdesc = &interdesc->endpoint[k];
-                    
-                    // OUT
-                    if(a_ep_out != 0xFF)
-                    {
-                        if(((epdesc->bmAttributes & 0x03) == 2) && ((epdesc->bEndpointAddress & 0x80) == 0) && (epdesc->bEndpointAddress == a_ep_out)) // BULK and OUT
-                        {
-                            ep_out = a_ep_out;
-                        }
-                    }
-                    
-                    // IN
-                    if(a_ep_in != 0xFF)
-                    {
-                        if(((epdesc->bmAttributes & 0x03) == 2) && ((epdesc->bEndpointAddress & 0x80) != 0) && (epdesc->bEndpointAddress == a_ep_in)) // BULK and IN
-                        {
-                            ep_in = a_ep_in;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    libusb_free_config_descriptor(config);
-    
-    if(interface_number >= 0)
-    {
-        r = libusb_claim_interface(devh, interface_number); //claim interface
-        if(r < 0) 
-        {
-            libusb_close(devh);
-            libusb_exit(usbctx); //close the session
-            throw std::runtime_error("Cannot claim interface");
-        }
-    }
-    else
-    {
-        libusb_close(devh);
-        libusb_exit(usbctx); //close the session
-        throw std::runtime_error("No vendor interface in the device");
-    }
-    
-    if((ep_in == 0xFF) && (ep_out == 0xFF))
-    {
-        libusb_release_interface(devh, interface_number);
-        libusb_close(devh);
-        libusb_exit(usbctx); //close the session
-        throw std::runtime_error("No bulk endpoints in the interface at all");
-    }
+    pimpl->open(a_vid, a_pid, a_ep_in, a_ep_out);
 }
 
 llc::transport::lowlevel::USB::~USB()
 {
-    libusb_release_interface(devh, interface_number);
-    libusb_close(devh);
-    libusb_exit(usbctx); //close the session
+    
 }
 
-llc::Error llc::transport::lowlevel::USB::transmit(const void* ptr, std::size_t len, int timeout)
+llc::Error llc::transport::lowlevel::USB::transmit(const void* ptr, PayloadLengthT len, int timeout)
 {
-    if(ep_out != 0xFF)
+    if(!pimpl->write(ptr, len, std::chrono::milliseconds(timeout)))
     {
-        int tx_actual_transfer = 0;
-        int r = libusb_bulk_transfer(devh, ep_out, (unsigned char*)ptr, len, &tx_actual_transfer, timeout);
-        if((r == 0) && (tx_actual_transfer == (int)len))
-        {
-            return Error::OK;
-        }
-        else
-        {
-            return Error::Timeout;
-        }
+        return Error::HardwareError;
     }
-    else
-    {
-        return Error::Unsupported;
-    }
+    
+    return Error::OK;
 }
 
 llc::Error llc::transport::lowlevel::USB::transmitStart(llc::ChannelIDT chan_id, llc::NodeIDT node_id, int timeout)
 {
-    if(ep_out != 0xFF) { return Error::OK; } else { return Error::Unsupported; }
+    return Error::OK; 
 }
 
 llc::Error llc::transport::lowlevel::USB::transmitReset()
@@ -181,30 +73,19 @@ llc::Error llc::transport::lowlevel::USB::transmitComplete(llc::ChannelIDT chan_
     return Error::OK;
 }
 
-llc::Error llc::transport::lowlevel::USB::receive(void* ptr, std::size_t len, int timeout)
+llc::Error llc::transport::lowlevel::USB::receive(void* ptr, PayloadLengthT len, int timeout)
 {
-    if(ep_in != 0xFF)
+    if(!pimpl->read(ptr, len, std::chrono::milliseconds(timeout)))
     {
-        int rx_actual_transfer = 0;
-        int r = libusb_bulk_transfer(devh, ep_in, (unsigned char*)ptr, len, &rx_actual_transfer, timeout);
-        if((r == 0) && (rx_actual_transfer == (int)len))
-        {
-            return Error::OK;
-        }
-        else
-        {
-            return Error::Timeout;
-        }
+        return Error::HardwareError;
     }
-    else
-    {
-        return Error::Unsupported;
-    }
+    
+    return Error::OK;
 }
 
-llc::Error llc::transport::lowlevel::USB::receiveStart(int timeout)
+llc::Error llc::transport::lowlevel::USB::receiveStart(PayloadLengthT& len, ChannelIDT& chan_id, NodeIDT& node_id, int timeout)
 {
-    if(ep_in != 0xFF) { return Error::OK; } else { return Error::Unsupported; }
+    return Error::OK;
 }
 
 llc::Error llc::transport::lowlevel::USB::receiveReset()

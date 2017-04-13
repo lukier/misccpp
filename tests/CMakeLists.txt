@@ -1,4 +1,4 @@
-# Copyright (c) 2016, Robert Lukierski.
+# Copyright (c) 2017, Robert Lukierski.
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -43,8 +43,17 @@ include_directories(.)
 set(TEST_SOURCES
 tests_main.cpp
 UT_MiscCpp.cpp
+UT_LowLevelCom_Bridge.cpp
+UT_LowLevelCom_Mux.cpp
+UT_LowLevelCom_TransportCAN.cpp
+UT_LowLevelCom_TransportI2C.cpp
+UT_LowLevelCom_TransportNanoMsg.cpp
+UT_LowLevelCom_TransportSerialPort.cpp
+UT_LowLevelCom_TransportSPI.cpp
+UT_LowLevelCom_TransportUSB.cpp
+UT_LowLevelCom_TransportZeroMQ.cpp
 )
 
-add_executable(UT_MiscCpp ${TEST_SOURCES} ${TEST_KERNEL_OBJS})
+add_executable(UT_MiscCpp ${TEST_SOURCES})
 target_link_libraries(UT_MiscCpp ${GTEST_LIBRARY} ${PROJECT_NAME})
 add_test(UT_MiscCpp UT_MiscCpp --gtest_output=xml:UT_MiscCpp.xml)

@@ -37,7 +37,9 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cstdlib>
 #include <utility>
+#include <chrono>
 
 namespace llc
 {
@@ -52,7 +54,8 @@ enum class Error : uint8_t
     FramingError,
     ChannelError,
     HardwareError,
-    OutOfData
+    OutOfData,
+    FieldsUpdated
 };
 
 enum class AccessT : uint8_t
@@ -64,7 +67,7 @@ enum class AccessT : uint8_t
 
 typedef uint16_t NodeIDT;
 typedef uint32_t PayloadLengthT;
-typedef uint8_t ChannelIDT;
+typedef uint8_t  ChannelIDT;
 
 namespace internal
 {
@@ -88,6 +91,18 @@ namespace internal
     
     template<>
     struct ChannelIDSize<false>
+    {
+        static constexpr std::size_t size = 0;
+    };
+    
+    template<bool v>
+    struct PayloadLengthSize
+    {
+        static constexpr std::size_t size = sizeof(PayloadLengthT);
+    };
+    
+    template<>
+    struct PayloadLengthSize<false>
     {
         static constexpr std::size_t size = 0;
     };
@@ -120,6 +135,12 @@ namespace internal
         typedef uint32_t crc_type;
         static constexpr std::size_t crc_suffix_size = 0;
         static inline crc_type calculateCRC(std::size_t count, const void* buffer) { return 0; }
+    };
+    
+    struct DefaultAllocator
+    {
+        static void* malloc(std::size_t cnt) { return ::malloc(cnt); }
+        static void free(void* ptr) { ::free(ptr); }
     };
 }
 

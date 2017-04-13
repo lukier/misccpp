@@ -29,66 +29,41 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Simple C++ serial port driver
+ * Simple C++ interface to i2c-dev.
  * ****************************************************************************
  */
 
-#ifndef DRIVERS_SERIAL_PORT_HPP
-#define DRIVERS_SERIAL_PORT_HPP
+#ifndef DRIVERS_DEV_I2C_HPP
+#define DRIVERS_DEV_I2C_HPP
 
 #include <cstdint>
 #include <chrono>
 
 namespace drivers
 {
-    
-class SerialPort
+
+/**
+ * I2C Dev Interface.
+ * NOTE: Blocking, no timeouts.
+ */    
+class DevI2C
 {
 public:
-    enum class ByteSize
+    enum class AddressSupport
     {
-        B5,
-        B6,
-        B7,
-        B8,
+        bits7,
+        bits10
     };
     
-    enum class Parity
-    {
-        None,
-        Odd,
-        Even,
-        Mark,
-        Space
-    };
+    DevI2C();
+    virtual ~DevI2C();
     
-    enum class StopBits
-    {
-        One,
-        Two,
-    };
-    
-    enum class FlowControl
-    {
-        None,
-        Software,
-        Hardware
-    };
-    
-    SerialPort();
-    virtual ~SerialPort();
-    
-    bool open(const char* ttydev, int baudrate = 115200, ByteSize bs = ByteSize::B8, Parity par = Parity::None, StopBits sb = StopBits::One, FlowControl fc = FlowControl::None);
+    bool open(const char* i2cdev, AddressSupport as = AddressSupport::bits7);
     bool isOpen();
     void close();
     
-    std::size_t haveMore();
-    
-    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
-    bool waitForMore(const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
-    {
-        return waitForMoreImpl(std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
-    }
+    uint32_t getSlaveAddress() const { return ouraddr; }
+    bool setSlaveAddress(const uint32_t a);
 
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
     bool read(void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
@@ -101,24 +76,26 @@ public:
     {
         return writeImpl(src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
+
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool writeRead(const void* data_out, std::size_t count_out, void* data_in, std::size_t count_in, bool noStart = false, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return readWriteImpl(false, data_out, count_out, data_in, count_in, noStart, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
     
-    void flush();
-    void sendBreak(int duration);
-    void setRTS(bool v);
-    void setDTR(bool v);
-    bool getCTS();
-    bool getDSR();
-    bool getRI();
-    bool getCD();
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool writeWrite(const void* data_out, std::size_t count_out, const void* data_out2, std::size_t count_out2, bool noStart = false, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return readWriteImpl(true, data_out, count_out, const_cast<void*>(data_out2), count_out2, noStart, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
 private:
-    bool waitForMoreImpl(const uint32_t timeout_ms);
     bool readImpl(void* dst, std::size_t count, const uint32_t timeout_ms);
     bool writeImpl(const void* src, std::size_t count, const uint32_t timeout_ms);
-    bool getStatusBit(int bit);
-    void setStatusBit(int command, bool v);
+    bool readWriteImpl(bool ww, const void* data_out, std::size_t count_out, void* data_in, std::size_t count_in, bool noStart, const uint32_t timeout_ms);
+    uint32_t ouraddr;
     int port_fd;
 };
     
 }
 
-#endif // DRIVERS_SERIAL_PORT_HPP
+#endif // DRIVERS_DEV_I2C_HPP

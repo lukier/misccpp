@@ -83,13 +83,14 @@ public:
         }
     }
     
-    int getTimeoutMaster() const { return timeout_ms; }
-    int getTimeoutSlaves() const { return timeout_sl; }
+    std::chrono::milliseconds getTimeoutMaster() const { return timeout_ms; }
+    std::chrono::milliseconds getTimeoutSlaves() const { return timeout_sl; }
     
-    void setTimeouts(int tms, int tsl)
+    template<typename _Rep1 = int64_t, typename _Period1 = std::ratio<1>, typename _Rep2 = int64_t, typename _Period2 = std::ratio<1>>
+    void setTimeouts(const std::chrono::duration<_Rep1, _Period1>& timeout_master, const std::chrono::duration<_Rep2, _Period2>& timeout_slave)
     {
-        timeout_ms = tms;
-        timeout_sl = tsl;
+        timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout_master);
+        timeout_sl = std::chrono::duration_cast<std::chrono::milliseconds>(timeout_slave);
     }
 private:
     void broker()
@@ -110,7 +111,7 @@ private:
     
     std::atomic<bool> time_to_end;
     std::thread thr;
-    int timeout_ms, timeout_sl;
+    std::chrono::milliseconds timeout_ms, timeout_sl;
 };
 
 }

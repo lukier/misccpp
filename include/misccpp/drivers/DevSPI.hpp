@@ -1,6 +1,6 @@
 /**
  * ****************************************************************************
- * Copyright (c) 2017, Robert Lukierski.
+ * Copyright (c) 2016, Robert Lukierski.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,72 +29,58 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Linux libUSB based low level transport.
+ * Simple C++ interface to spi-dev.
  * ****************************************************************************
  */
-#ifndef LOWLEVELCOMM_TRANSPORT_USB_HPP
-#define LOWLEVELCOMM_TRANSPORT_USB_HPP
 
-#include <mutex>
-#include <memory>
+#ifndef DRIVERS_DEV_SPI_HPP
+#define DRIVERS_DEV_SPI_HPP
 
-#include <misccpp/lowlevelcom/utils.hpp>
+#include <cstdint>
+#include <chrono>
 
 namespace drivers
 {
-class DevUSB;
-}
 
-namespace llc
-{
-    
-namespace transport
-{
-    
-namespace lowlevel
-{
-
-class USB
+/**
+ * SPI Dev Interface.
+ * NOTE: Blocking, no timeouts.
+ */    
+class DevSPI
 {
 public:
-    static constexpr bool ProvidesFieldsUpdated = false;
-    static constexpr bool RequiresChannelID = false;
-    static constexpr bool RequiresNodeID = false;
-    static constexpr bool SupportsFraming = true;
+    DevSPI();
+    virtual ~DevSPI();
     
-    USB() = delete;
-    USB(uint16_t a_vid, uint16_t a_pid, uint8_t a_ep_in = 0xFF, uint8_t a_ep_out = 0xFF);
-    virtual ~USB();
+    bool open(const char* spidev, uint32_t freq = 1000000, uint8_t bpw = 8, bool cpha = true, bool cpol = true, bool lsb_first = true);
+    bool isOpen();
+    void close();
+
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool read(void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return readImpl(dst, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
     
-    // non copyable
-    USB(const USB&) = delete;
-    USB& operator=(USB const&) = delete; 
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool write(const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return writeImpl(src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
+
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool readWrite(const void* data_out, void* data_in, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return readWriteImpl(data_out, data_in, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
     
-    // TODO FIXME move semantics
-    
-    // TX
-    Error transmit(const void* ptr, PayloadLengthT len, int timeout);
-    Error transmitStart(ChannelIDT chan_id, NodeIDT node_id, int timeout);
-    Error transmitReset();
-    Error transmitComplete(ChannelIDT chan_id, NodeIDT node_id, int timeout);
-    
-    // RX
-    Error receive(void* ptr, PayloadLengthT len, int timeout);
-    Error receiveStart(PayloadLengthT& len, ChannelIDT& chan_id, NodeIDT& node_id, int timeout);
-    Error receiveReset();
-    Error receiveComplete(int timeout);
-    
-    void lock() { safety.lock(); }
-    void unlock() { safety.unlock(); }
 private:
-    std::unique_ptr<drivers::DevUSB> pimpl;
-    std::mutex safety;
+    bool readImpl(void* dst, std::size_t count, const uint32_t timeout_ms);
+    bool writeImpl(const void* src, std::size_t count, const uint32_t timeout_ms);
+    bool readWriteImpl(const void* data_out, void* data_in, std::size_t count, const uint32_t timeout_ms);
+    int port_fd;
 };
-
+    
 }
 
-}
-
-}
-
-#endif // LOWLEVELCOMM_TRANSPORT_USB_HPP
+#endif // DRIVERS_DEV_SPI_HPP

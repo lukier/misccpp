@@ -1,6 +1,6 @@
 /**
  * ****************************************************************************
- * Copyright (c) 2017, Robert Lukierski.
+ * Copyright (c) 2016, Robert Lukierski.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,72 +29,51 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Linux libUSB based low level transport.
+ * Simple C++ SocketCAN interface.
  * ****************************************************************************
  */
-#ifndef LOWLEVELCOMM_TRANSPORT_USB_HPP
-#define LOWLEVELCOMM_TRANSPORT_USB_HPP
 
-#include <mutex>
-#include <memory>
+#ifndef DRIVERS_SOCKET_CAN_HPP
+#define DRIVERS_SOCKET_CAN_HPP
 
-#include <misccpp/lowlevelcom/utils.hpp>
+#include <cstdint>
+#include <chrono>
 
 namespace drivers
 {
-class DevUSB;
-}
-
-namespace llc
+    
+/**
+ * SocketCAN Interface.
+ */
+class SocketCAN
 {
+public:    
+    SocketCAN();
+    virtual ~SocketCAN();
     
-namespace transport
-{
+    bool open(const char* port, bool ufd);
+    bool isOpen();
+    void close();
     
-namespace lowlevel
-{
-
-class USB
-{
-public:
-    static constexpr bool ProvidesFieldsUpdated = false;
-    static constexpr bool RequiresChannelID = false;
-    static constexpr bool RequiresNodeID = false;
-    static constexpr bool SupportsFraming = true;
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool read(uint32_t& cid, void* dst, std::size_t& count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return readImpl(cid, dst, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
     
-    USB() = delete;
-    USB(uint16_t a_vid, uint16_t a_pid, uint8_t a_ep_in = 0xFF, uint8_t a_ep_out = 0xFF);
-    virtual ~USB();
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool write(const uint32_t& cid, const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return writeImpl(cid, src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
     
-    // non copyable
-    USB(const USB&) = delete;
-    USB& operator=(USB const&) = delete; 
-    
-    // TODO FIXME move semantics
-    
-    // TX
-    Error transmit(const void* ptr, PayloadLengthT len, int timeout);
-    Error transmitStart(ChannelIDT chan_id, NodeIDT node_id, int timeout);
-    Error transmitReset();
-    Error transmitComplete(ChannelIDT chan_id, NodeIDT node_id, int timeout);
-    
-    // RX
-    Error receive(void* ptr, PayloadLengthT len, int timeout);
-    Error receiveStart(PayloadLengthT& len, ChannelIDT& chan_id, NodeIDT& node_id, int timeout);
-    Error receiveReset();
-    Error receiveComplete(int timeout);
-    
-    void lock() { safety.lock(); }
-    void unlock() { safety.unlock(); }
 private:
-    std::unique_ptr<drivers::DevUSB> pimpl;
-    std::mutex safety;
+    bool readImpl(uint32_t& cid, void* dst, std::size_t& count, const uint32_t timeout_ms);
+    bool writeImpl(const uint32_t& cid, const void* src, std::size_t count, const uint32_t timeout_ms);
+    int sock;
+    bool use_fd;
 };
-
+    
 }
 
-}
-
-}
-
-#endif // LOWLEVELCOMM_TRANSPORT_USB_HPP
+#endif // DRIVERS_SOCKET_CAN_HPP

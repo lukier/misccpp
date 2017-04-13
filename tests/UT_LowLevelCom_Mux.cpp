@@ -29,72 +29,67 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Linux libUSB based low level transport.
- * ****************************************************************************
  */
-#ifndef LOWLEVELCOMM_TRANSPORT_USB_HPP
-#define LOWLEVELCOMM_TRANSPORT_USB_HPP
 
-#include <mutex>
-#include <memory>
+// system
+#include <stdint.h>
+#include <stddef.h>
+#include <iostream>
+#include <fstream>
+#include <ctime>
+#include <exception>
+#include <sstream>
+#include <iomanip>
+#include <vector>
+#include <cmath>
+#include <valarray>
+#include <functional>
 
-#include <misccpp/lowlevelcom/utils.hpp>
+// testing framework & libraries
+#include <gtest/gtest.h>
 
-namespace drivers
-{
-class DevUSB;
-}
+#include <misccpp/lowlevelcom/lowlevelcom.hpp>
 
-namespace llc
+class Test_LowLevelCom_Mux : public ::testing::Test
 {
+public:   
+    Test_LowLevelCom_Mux()
+    {
+        
+    }
     
-namespace transport
-{
-    
-namespace lowlevel
-{
-
-class USB
-{
-public:
-    static constexpr bool ProvidesFieldsUpdated = false;
-    static constexpr bool RequiresChannelID = false;
-    static constexpr bool RequiresNodeID = false;
-    static constexpr bool SupportsFraming = true;
-    
-    USB() = delete;
-    USB(uint16_t a_vid, uint16_t a_pid, uint8_t a_ep_in = 0xFF, uint8_t a_ep_out = 0xFF);
-    virtual ~USB();
-    
-    // non copyable
-    USB(const USB&) = delete;
-    USB& operator=(USB const&) = delete; 
-    
-    // TODO FIXME move semantics
-    
-    // TX
-    Error transmit(const void* ptr, PayloadLengthT len, int timeout);
-    Error transmitStart(ChannelIDT chan_id, NodeIDT node_id, int timeout);
-    Error transmitReset();
-    Error transmitComplete(ChannelIDT chan_id, NodeIDT node_id, int timeout);
-    
-    // RX
-    Error receive(void* ptr, PayloadLengthT len, int timeout);
-    Error receiveStart(PayloadLengthT& len, ChannelIDT& chan_id, NodeIDT& node_id, int timeout);
-    Error receiveReset();
-    Error receiveComplete(int timeout);
-    
-    void lock() { safety.lock(); }
-    void unlock() { safety.unlock(); }
-private:
-    std::unique_ptr<drivers::DevUSB> pimpl;
-    std::mutex safety;
+    virtual ~Test_LowLevelCom_Mux()
+    {
+        
+    }
 };
 
+TEST_F(Test_LowLevelCom_Mux, Dummy)
+{   
+    // Master
+    typedef llc::transport::NanoMSGIO<true> NanoMSGIO;
+    typedef typename NanoMSGIO::message_t nano_message_t;
+    
+    // Slave 1
+    typedef llc::transport::lowlevel::USB LLUSB;
+    typedef llc::transport::RawIO<LLUSB> USBIO;
+    typedef typename USBIO::message_t usb_message_t;
+    
+    // Slave 2
+    typedef llc::transport::lowlevel::SerialPort LLSP;
+    typedef llc::transport::RawIO<LLSP> SPIO;
+    typedef typename SPIO::message_t sp_message_t;
+    
+    typedef llc::MultiplexerLinux<NanoMSGIO, llc::SlaveChannelPair<USBIO, 5>, llc::SlaveChannelPair<SPIO,10>> MuxT;
+    
+    nn::socket_t nns;
+    NanoMSGIO nmio(nns);
+    
+    LLUSB usbdev(0x1234,0x5678,0x02,0x82);
+    USBIO usbio(usbdev);
+    
+    LLSP spdev("/dev/ttyACM0");
+    SPIO spio(spdev);
+    
+    MuxT mux(nmio, usbio, spio);
 }
-
-}
-
-}
-
-#endif // LOWLEVELCOMM_TRANSPORT_USB_HPP

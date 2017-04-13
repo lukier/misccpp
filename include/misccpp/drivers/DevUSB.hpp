@@ -29,96 +29,73 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Simple C++ serial port driver
+ * Simple C++ interface to libusb.
  * ****************************************************************************
  */
 
-#ifndef DRIVERS_SERIAL_PORT_HPP
-#define DRIVERS_SERIAL_PORT_HPP
+#ifndef DRIVERS_DEV_USB_HPP
+#define DRIVERS_DEV_USB_HPP
 
 #include <cstdint>
 #include <chrono>
 
+struct libusb_context;
+struct libusb_device_handle;
+struct libusb_device;
+
 namespace drivers
 {
-    
-class SerialPort
+
+/**
+ * libusb Interface.
+ */    
+class DevUSB
 {
 public:
-    enum class ByteSize
-    {
-        B5,
-        B6,
-        B7,
-        B8,
-    };
+    DevUSB();
+    virtual ~DevUSB();
     
-    enum class Parity
-    {
-        None,
-        Odd,
-        Even,
-        Mark,
-        Space
-    };
-    
-    enum class StopBits
-    {
-        One,
-        Two,
-    };
-    
-    enum class FlowControl
-    {
-        None,
-        Software,
-        Hardware
-    };
-    
-    SerialPort();
-    virtual ~SerialPort();
-    
-    bool open(const char* ttydev, int baudrate = 115200, ByteSize bs = ByteSize::B8, Parity par = Parity::None, StopBits sb = StopBits::One, FlowControl fc = FlowControl::None);
+    bool open(uint16_t a_vid, uint16_t a_pid, uint8_t a_ep_in = 0xFF, uint8_t a_ep_out = 0xFF);
     bool isOpen();
     void close();
     
-    std::size_t haveMore();
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    bool readControl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    {
+        return readControlImpl(bmRequestType, bRequest, wValue, wIndex, dst, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    }
     
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
-    bool waitForMore(const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    bool writeControl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
-        return waitForMoreImpl(std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+        return writeControlImpl(bmRequestType, bRequest, wValue, wIndex, src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
 
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
     bool read(void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
-        return readImpl(dst, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+        return readBulkImpl(dst, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
     
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
     bool write(const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
-        return writeImpl(src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+        return writeBulkImpl(src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
-    
-    void flush();
-    void sendBreak(int duration);
-    void setRTS(bool v);
-    void setDTR(bool v);
-    bool getCTS();
-    bool getDSR();
-    bool getRI();
-    bool getCD();
+
 private:
-    bool waitForMoreImpl(const uint32_t timeout_ms);
-    bool readImpl(void* dst, std::size_t count, const uint32_t timeout_ms);
-    bool writeImpl(const void* src, std::size_t count, const uint32_t timeout_ms);
-    bool getStatusBit(int bit);
-    void setStatusBit(int command, bool v);
-    int port_fd;
+    bool readBulkImpl(void* dst, std::size_t count, const uint32_t timeout_ms);
+    bool writeBulkImpl(const void* src, std::size_t count, const uint32_t timeout_ms);
+    bool readControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const uint32_t timeout_ms);
+    bool writeControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const uint32_t timeout_ms);
+    
+    uint8_t ep_in, ep_out;
+    int interface_number;
+    libusb_context *usbctx;
+    libusb_device_handle* devh;
+    libusb_device* dev;
 };
     
 }
 
-#endif // DRIVERS_SERIAL_PORT_HPP
+#endif // DRIVERS_DEV_USB_HPP

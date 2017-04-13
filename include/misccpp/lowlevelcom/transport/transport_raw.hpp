@@ -38,6 +38,7 @@
 #include <cassert>
 #include <algorithm>
 #include <type_traits>
+#include <memory>
 
 #include <misccpp/lowlevelcom/utils.hpp>
 
@@ -47,35 +48,56 @@ namespace llc
 namespace transport
 {
     
-template<typename SERIAL_IO, typename ALLOCATOR_T,  bool MultiChannel = false, bool MultiNode = false, typename CRC_PROVIDER = internal::NoCRC>
+/**
+ * RawIO creates Transport from Low Level IO. Makes packets with PacketLengthT and optionally NodeIDT and ChannelIDT.
+ * If drop framing then PayloadLengthT, ChannelIDT and NodeIDT header and CRC footer are dropped.
+ * NOTE: Receive may need allocated message of known size beforehand, depending on the low level transport! For now that's incompatible with Bridge/Mux
+ */
+template<typename SERIAL_IO, bool DropFraming = false, bool MultiChannel = false, bool MultiNode = false, typename CRC_PROVIDER = internal::NoCRC, typename ALLOCATOR_T = internal::DefaultAllocator>
 class RawIO
 {
 public:    
-    static constexpr AccessT Access = SERIAL_IO::Access;
+    static constexpr bool NeedsKnownInputMessage = (DropFraming && !SERIAL_IO::ProvidesFieldsUpdated);
     static constexpr bool IsMultiChannel = MultiChannel;
     static constexpr bool IsMultiNode = MultiNode;
-    // TODO static_asserts on RequiresNodeID and RequiresChannelID
+    static constexpr bool ToDropFraming = DropFraming;
+    
+    static_assert(!(ToDropFraming && !SERIAL_IO::SupportsFraming), "Low level doesn't support framing, switch to DropFraming");
+    static_assert(!(SERIAL_IO::RequiresNodeID && (!IsMultiNode)), "Low level needs NodeID");
+    static_assert(!(SERIAL_IO::RequiresChannelID && (!IsMultiChannel)), "Low level needs ChannelID");
     
     class message_t
     {
     public:
         typedef typename CRC_PROVIDER::crc_type crc_type;
         
+        /**
+         * Message will still contain PayloadLengthT, ChannelIDT and NodeIDT in the buffer even if DropFraming.
+         * transmit/receive functions are responsible for managing the differences.
+         */
+        static constexpr std::size_t PrefixRequired = internal::ChannelIDSize<IsMultiChannel>::size + 
+                                                      internal::NodeIDSize<IsMultiNode>::size + 
+                                                      internal::PayloadLengthSize<true>::size +
+                                                      CRC_PROVIDER::crc_suffix_size;
+        
         // default constructor
-        message_t() : buf(0), len(0) { setChannelID(0); setNodeID(0); }
+        message_t() : buf(nullptr, &message_t::nodelete), len(0) { setChannelID(0); setNodeID(0); }
         
         // allocation constructor
-        explicit message_t(std::size_t l, ChannelIDT cid = 0, NodeIDT nid = 0) : buf(ALLOCATOR_T::malloc(
-                                                                                            internal::ChannelIDSize<MultiChannel>::size + 
-                                                                                            internal::NodeIDSize<MultiNode>::size + 
-                                                                                            sizeof(PayloadLengthT) + 
-                                                                                            l + CRC_PROVIDER::crc_suffix_size
-                                                                                                        )
-                                                                                 ), len(l) 
+        explicit message_t(std::size_t l, ChannelIDT cid = 0, NodeIDT nid = 0) : buf(static_cast<uint8_t*>(ALLOCATOR_T::malloc(PrefixRequired + l)), &ALLOCATOR_T::free), len(PrefixRequired + l) 
         { 
-            assert(buf != nullptr);
-            
-            if(buf != 0)
+            if(buf.get() != 0)
+            {
+                updateSize(l);
+                setChannelID(cid);
+                setNodeID(nid);
+            }
+        }
+        
+        // external memory constructor
+        explicit message_t(void* data, std::size_t l, ChannelIDT cid = 0, NodeIDT nid = 0) : buf(static_cast<uint8_t*>(data), &message_t::nodelete), len(PrefixRequired + l)
+        { 
+            if(buf.get() != 0)
             {
                 updateSize(l);
                 setChannelID(cid);
@@ -94,15 +116,15 @@ public:
         message_t& operator=(const message_t&) = delete;
         
         // destructor
-        inline ~message_t() { if(buf != 0) { ALLOCATOR_T::free(buf); } len = 0; }
+        inline ~message_t() { len = 0; }
         
         // access
-        inline const void* data() const { if(buf != 0) { return static_cast<void*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size + sizeof(PayloadLengthT))); } else { return buf; } }
-        inline void* data() { if(buf != 0) { return static_cast<void*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size + sizeof(PayloadLengthT))); } else { return buf; } }
+        inline const void* data() const { if(buf.get() != 0) { return static_cast<const void*>(getBufferAt(PrefixRequired)); } else { return nullptr; } }
+        inline void* data() { if(buf.get() != 0) { return static_cast<void*>(getBufferAt(PrefixRequired)); } else { return nullptr; } }
         inline std::size_t size() const { return len; }
         
         // has data?
-        inline explicit operator bool () const noexcept { return buf != 0; }
+        inline explicit operator bool () const noexcept { return buf.get() != 0; }
         
         inline void swap(message_t& m) noexcept
         {
@@ -112,31 +134,29 @@ public:
         
         static inline constexpr bool supportsChannelID() { return MultiChannel; }
         // optional ChannelID get
-        ChannelIDT getChannelID() const { if(MultiChannel) { return *static_cast<ChannelIDT*>(getBufferAt(0)); } else { return 0; } }
+        ChannelIDT getChannelID() const { if(MultiChannel) { return *static_cast<const ChannelIDT*>(getBufferAt(0)); } else { return 0; } }
         // optional ChannelID set
-        inline void setChannelID(ChannelIDT n) { if(MultiChannel && (buf != 0)) { *static_cast<ChannelIDT*>(getBufferAt(0)) = n; } }
+        inline void setChannelID(ChannelIDT n) { if(MultiChannel && (buf.get() != 0)) { *static_cast<ChannelIDT*>(getBufferAt(0)) = n; } }
         
         static inline constexpr bool supportsNodeID() { return MultiNode; }
         // optional NodeID get
-        NodeIDT getNodeID() const { if(MultiNode) { return *static_cast<NodeIDT*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size)); } else { return 0; } }
+        NodeIDT getNodeID() const { if(MultiNode) { return *static_cast<const NodeIDT*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size)); } else { return 0; } }
         // optional NodeID set
-        inline void setNodeID(NodeIDT n) { if(MultiNode && (buf != 0)) { *static_cast<NodeIDT*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size)) = n; } }
+        inline void setNodeID(NodeIDT n) { if(MultiNode && (buf.get() != 0)) { *static_cast<NodeIDT*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size)) = n; } }
 
     private:
         friend class RawIO; // for CRC and raw access
         
-        inline void* raw_data() const { return buf; }
-        inline const void* raw_data() { return buf; }
-        inline std::size_t raw_size() const { return internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size + sizeof(PayloadLengthT) + len + CRC_PROVIDER::crc_suffix_size; }
+        inline void* raw_data() const { return buf.get(); }
+        inline const void* raw_data() { return buf.get(); }
+        inline std::size_t raw_size() const { return PrefixRequired + len; }
         
         static inline constexpr bool supportsCRC() { return CRC_PROVIDER::crc_enabled; }
         
-        // optional CRC compute
+        // optional CRC compute (doesn't include framing header data)
         crc_type calculateCRC() const
         {
-            if(CRC_PROVIDER::crc_enabled) { return CRC_PROVIDER::calculateCRC(len, getBufferAt(internal::ChannelIDSize<MultiChannel>::size + 
-                                                                                               internal::NodeIDSize<MultiNode>::size + 
-                                                                                               sizeof(PayloadLengthT))); } else { return 0; }
+            if(CRC_PROVIDER::crc_enabled) { return CRC_PROVIDER::calculateCRC(len, getBufferAt(PrefixRequired)); } else { return 0; }
         }
         
         // optional read message CRC
@@ -144,8 +164,7 @@ public:
         {
             if(CRC_PROVIDER::crc_enabled)
             {
-                return *static_cast<crc_type*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + 
-                                               internal::NodeIDSize<MultiNode>::size + sizeof(PayloadLengthT) + len));
+                return *static_cast<crc_type*>(getBufferAt(PrefixRequired + len));
             }
             else
             {
@@ -158,18 +177,21 @@ public:
         {
             if(CRC_PROVIDER::crc_enabled)
             {
-                *static_cast<crc_type*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size + sizeof(PayloadLengthT) + len)) = crc;
+                *static_cast<crc_type*>(const_cast<void*>(getBufferAt(PrefixRequired + len))) = crc;
             }
         }
         
-        inline void* getBufferAt(std::size_t offset) const  { return static_cast<void*>(&(static_cast<uint8_t*>(buf)[offset])); }
+        inline const void* getBufferAt(std::size_t offset) const { return static_cast<const void*>(&(buf.get()[offset])); }
+        inline void* getBufferAt(std::size_t offset) { return static_cast<void*>(&(buf.get()[offset])); }
         
         void updateSize(PayloadLengthT l) const
         {
-            *static_cast<PayloadLengthT*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size)) = l;
+            *static_cast<PayloadLengthT*>(const_cast<void*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size))) = l;
         }
         
-        mutable void* buf;
+        static inline void nodelete(void*) { }
+        
+        mutable std::unique_ptr<uint8_t,void(*)(void*)> buf;
         std::size_t len;
     };
     
@@ -200,63 +222,77 @@ public:
         std::swap(sio, m.sio);
     }
     
-    Error receive(message_t& msg_out, int timeout = 0)
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error receive(message_t& msg_out, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
+        const int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
+        
         Error rc = Error::OK;
         
-        if((Access == AccessT::W)) { return Error::Unsupported; }
+        // NOTE: If ToDropFraming then it is assumed that msg_out contains
+        // necessary data or receiveStart returns FieldsUpdated
+        PayloadLengthT len = msg_out.size();
+        NodeIDT node_id = msg_out.getNodeID();
+        ChannelIDT chan_id = msg_out.getChannelID();
         
-        // may be needed sometimes to prepare
-        rc = sio.receiveStart(timeout);
+        // may be needed sometimes to prepare lowlevel backend
+        rc = sio.receiveStart(len, chan_id, node_id, timeout_ms);
         if(rc != Error::OK) 
         { 
-            sio.receiveReset(); 
-            return LLC_HANDLE_ERROR(rc); 
-        }
-        
-        constexpr std::size_t min_bytes_to_read = internal::ChannelIDSize<MultiChannel>::size + 
-                                                  internal::NodeIDSize<MultiNode>::size + 
-                                                  sizeof(PayloadLengthT);
-        
-        uint8_t header_buf[min_bytes_to_read];
-        std::size_t read_pos = 0;
-        
-        rc = sio.receive(header_buf, min_bytes_to_read, timeout);
-        if(rc != Error::OK) 
-        { 
-            sio.receiveReset(); 
-            return LLC_HANDLE_ERROR(rc); 
+            if(rc == Error::FieldsUpdated)
+            {
+                // low level backend provided new info
+                msg_out = message_t(len, chan_id, node_id);
+            }
+            else
+            {
+                sio.receiveReset(); 
+                return LLC_HANDLE_ERROR(rc); 
+            }
         }
 
-        ChannelIDT chan_id = 0;
-        
-        // read ChannelID
-        if(IsMultiChannel)
+        // If not dropping framing let's receive the header
+        if(!ToDropFraming)
         {
-            const ChannelIDT* ptr = (ChannelIDT*)&header_buf[read_pos];
-            chan_id = *ptr;
-            read_pos += sizeof(ChannelIDT);
+            std::size_t read_pos = 0;
+            
+            uint8_t header_buf[message_t::PrefixRequired];
+            
+            // ask for header bytes
+            rc = sio.receive(header_buf, message_t::PrefixRequired, timeout_ms);
+            if(rc != Error::OK) 
+            { 
+                sio.receiveReset(); 
+                return LLC_HANDLE_ERROR(rc); 
+            }
+
+            // read ChannelID
+            if(IsMultiChannel)
+            {
+                const ChannelIDT* ptr = (ChannelIDT*)&header_buf[read_pos];
+                chan_id = *ptr;
+                read_pos += sizeof(ChannelIDT);
+            }
+            
+            // read NodeID
+            if(IsMultiNode)
+            {
+                const NodeIDT* ptr = (NodeIDT*)&header_buf[read_pos];
+                node_id = *ptr;
+                read_pos += sizeof(NodeIDT);
+            }
+            
+            // read length
+            const PayloadLengthT* lenptr = (PayloadLengthT*)&header_buf[read_pos];
+            len = *lenptr;
+            read_pos += sizeof(PayloadLengthT);
+            
+            // create message, as it isn't predefined
+            msg_out = message_t(len, chan_id, node_id);
         }
-        
-        NodeIDT node_id = 0;
-        
-        // read NodeID
-        if(IsMultiNode)
-        {
-            const NodeIDT* ptr = (NodeIDT*)&header_buf[read_pos];
-            node_id = *ptr;
-            read_pos += sizeof(NodeIDT);
-        }
-        
-        // read length
-        PayloadLengthT len = 0;
-        
-        const PayloadLengthT* lenptr = (PayloadLengthT*)&header_buf[read_pos];
-        len = *lenptr;
-        read_pos += sizeof(PayloadLengthT);
-                
-        // create message
-        msg_out = message_t(len, chan_id, node_id);
+
+        // If drop framing then the input message has to be allocated and of known length (+other header fields)
+        // or return FieldsUpdated in receiveStart
         if(msg_out.data() == 0) 
         { 
             sio.receiveReset(); 
@@ -264,7 +300,7 @@ public:
         }
                
         // receive payload
-        rc = sio.receive(msg_out.data(), msg_out.size(), timeout);
+        rc = sio.receive(msg_out.data(), msg_out.size(), timeout_ms);
         if(rc != Error::OK) 
         { 
             sio.receiveReset(); 
@@ -272,12 +308,12 @@ public:
         }
       
         // receive and verify CRC
-        if(message_t::supportsCRC())
+        if(!ToDropFraming && message_t::supportsCRC())
         {
             typedef typename message_t::crc_type crc_type;
             // receive CRC
             crc_type data_crc = 0;
-            rc = sio.receive(&data_crc, sizeof(crc_type), timeout);
+            rc = sio.receive(&data_crc, sizeof(crc_type), timeout_ms);
             if(rc != Error::OK) 
             { 
                 sio.receiveReset(); 
@@ -299,7 +335,7 @@ public:
         }
         
         // may be needed sometimes to complete
-        rc = sio.receiveComplete(timeout);
+        rc = sio.receiveComplete(timeout_ms);
         if(rc != Error::OK) 
         { 
             sio.receiveReset(); 
@@ -309,14 +345,15 @@ public:
         return rc;
     }
     
-    Error transmit(const message_t& msg, int timeout = 0)
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error transmit(const message_t& msg, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
+        const int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
+        
         Error rc = Error::OK;
         
-        if((Access == AccessT::R)) { return Error::Unsupported; }
-        
-        // may be needed sometimes to prepare
-        rc = sio.transmitStart(msg.getChannelID(), msg.getNodeID(), timeout);
+        // may be needed sometimes to prepare the low level backend
+        rc = sio.transmitStart(msg.getChannelID(), msg.getNodeID(), timeout_ms);
         if(rc != Error::OK) 
         { 
             sio.transmitReset(); 
@@ -329,8 +366,17 @@ public:
             msg.writeCRC(msg.calculateCRC());
         }
 
-        // transmit everything
-        rc = sio.transmit(msg.raw_data(), msg.raw_size(), timeout);
+        if(!ToDropFraming)
+        {
+            // transmit everything
+            rc = sio.transmit(msg.raw_data(), msg.raw_size(), timeout_ms);
+        }
+        else
+        {
+            // transmit just payload
+            rc = sio.transmit(msg.data(), msg.size(), timeout_ms);
+        }
+        
         if(rc != Error::OK) 
         { 
             sio.transmitReset(); 
@@ -338,7 +384,7 @@ public:
         }
         
         // may be needed sometimes to complete
-        rc = sio.transmitComplete(msg.getChannelID(), msg.getNodeID(), timeout);
+        rc = sio.transmitComplete(msg.getChannelID(), msg.getNodeID(), timeout_ms);
         if(rc != Error::OK) 
         { 
             sio.transmitReset(); 

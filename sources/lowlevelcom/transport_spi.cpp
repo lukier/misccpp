@@ -29,7 +29,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Linux SPI based low level transport.
+ * Linux SPI based low level and high level packet transport.
  * ****************************************************************************
  */
 #include <string>
@@ -37,116 +37,23 @@
 #include <stdexcept>
 #include <cstring>
 
-#include <fcntl.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/ioctl.h>
-#include <linux/spi/spidev.h>
+#include <misccpp/drivers/DevSPI.hpp>
 
 #include <misccpp/lowlevelcom/transport/transport_spi.hpp>
 
-llc::transport::lowlevel::SPI::SPI(const char* dev_path, uint32_t freq, uint8_t bpw, bool cpha, bool cpol, bool lsb_first) : port_fd(-1)
+llc::transport::lowlevel::SPI::SPI(const char* dev_path, uint32_t freq, uint8_t bpw, bool cpha, bool cpol, bool lsb_first) : pimpl(new drivers::DevSPI())
 {
-    port_fd = ::open(dev_path, O_RDWR);
-    if(port_fd < 0) return;
-    
-    if(::ioctl(port_fd, SPI_IOC_RD_BITS_PER_WORD, &bpw) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
-    
-    if(::ioctl(port_fd, SPI_IOC_WR_BITS_PER_WORD, &bpw) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
-    
-    if(::ioctl(port_fd, SPI_IOC_RD_MAX_SPEED_HZ, &freq) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
-    
-    if(::ioctl(port_fd, SPI_IOC_WR_MAX_SPEED_HZ, &freq) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
-    
-    const uint8_t endian_val = (lsb_first == true ? 1 : 0);
-    if(::ioctl(port_fd, SPI_IOC_RD_LSB_FIRST, &endian_val) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
-    
-    if(::ioctl(port_fd, SPI_IOC_WR_LSB_FIRST, &endian_val) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
-    
-    uint8_t spi_mode = 0;
-    
-    if(cpha == false && cpol == false)
-    {
-        spi_mode = SPI_MODE_0;
-    }
-    else if(cpha == true && cpol == false)
-    {
-        spi_mode = SPI_MODE_1;
-    }
-    else if(cpha == false && cpol == true)
-    {
-        spi_mode = SPI_MODE_2;
-    }
-    else if(cpha == true && cpol == true)
-    {
-        spi_mode = SPI_MODE_3;
-    }
-    
-    if(::ioctl(port_fd, SPI_IOC_RD_MODE, &spi_mode) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
-    
-    if(::ioctl(port_fd, SPI_IOC_WR_MODE, &spi_mode) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
+    pimpl->open(dev_path, freq, bpw, cpha, cpol, lsb_first);
 }
 
 llc::transport::lowlevel::SPI::~SPI()
 {
-    if(port_fd != -1)
-    {
-        ::close(port_fd);
-    }
+    
 }
     
-llc::Error llc::transport::lowlevel::SPI::transmit(const void* ptr, std::size_t len, int timeout)
+llc::Error llc::transport::lowlevel::SPI::transmit(const void* ptr, PayloadLengthT len, int timeout)
 {
-    if(port_fd < 0) { return Error::HardwareError; }
-    
-    struct spi_ioc_transfer spi_message[1];
-    memset(spi_message, 0, sizeof(spi_message));
-    
-    spi_message[0].tx_buf = (uintptr_t)ptr;
-    spi_message[0].len = len;
-
-    if(::ioctl(port_fd, SPI_IOC_MESSAGE(1), spi_message) == -1)
+    if(!pimpl->write(ptr, len, std::chrono::milliseconds(timeout)))
     {
         return Error::HardwareError;
     }
@@ -169,19 +76,9 @@ llc::Error llc::transport::lowlevel::SPI::transmitComplete(llc::ChannelIDT chan_
     return Error::OK;
 }
 
-llc::Error llc::transport::lowlevel::SPI::receive(void* ptr, std::size_t len, int timeout)
+llc::Error llc::transport::lowlevel::SPI::receive(void* ptr, PayloadLengthT len, int timeout)
 {
-    // TODO FIXME RawIO design will call this twice (PayloadLengthT)! Need to redesign.
-    
-    if(port_fd < 0) { return Error::HardwareError; }
-    
-    struct spi_ioc_transfer spi_message[1];
-    memset(spi_message, 0, sizeof(spi_message));
-    
-    spi_message[0].rx_buf = (uintptr_t)ptr;
-    spi_message[0].len = len;
-    
-    if(::ioctl(port_fd, SPI_IOC_MESSAGE(1), spi_message) == -1)
+    if(!pimpl->read(ptr, len, std::chrono::milliseconds(timeout)))
     {
         return Error::HardwareError;
     }
@@ -189,7 +86,7 @@ llc::Error llc::transport::lowlevel::SPI::receive(void* ptr, std::size_t len, in
     return Error::OK;
 }
 
-llc::Error llc::transport::lowlevel::SPI::receiveStart(int timeout)
+llc::Error llc::transport::lowlevel::SPI::receiveStart(PayloadLengthT& len, ChannelIDT& chan_id, NodeIDT& node_id, int timeout)
 {
     return Error::OK;
 }
@@ -203,3 +100,47 @@ llc::Error llc::transport::lowlevel::SPI::receiveComplete(int timeout)
 {
     return Error::OK;
 }
+
+// --------------------------------------------
+
+template<bool MultiChannel, bool MultiNode>
+llc::transport::SPIIO<MultiChannel,MultiNode>::SPIIO(const char* dev_path, uint32_t freq, uint8_t bpw, bool cpha, bool cpol, bool lsb_first) : pimpl(new drivers::DevSPI())
+{
+    pimpl->open(dev_path, freq, bpw, cpha, cpol, lsb_first);
+}
+
+template<bool MultiChannel, bool MultiNode>
+llc::transport::SPIIO<MultiChannel,MultiNode>::~SPIIO()
+{
+    
+}
+
+template<bool MultiChannel, bool MultiNode>
+llc::Error llc::transport::SPIIO<MultiChannel,MultiNode>::receiveImpl(message_t& msg_out, const int timeout_ms)
+{
+    // msg_out must contain info (length) beforehand for packet based IO
+    if(!msg_out) { return Error::OutOfMemory; }
+    
+    if(!pimpl->read(msg_out.buf.get(), msg_out.len, std::chrono::milliseconds(timeout_ms)))
+    {
+        return Error::HardwareError;
+    }
+    
+    return Error::OK;
+}
+
+template<bool MultiChannel, bool MultiNode>
+llc::Error llc::transport::SPIIO<MultiChannel,MultiNode>::transmitImpl(const message_t& msg_out, const int timeout_ms)
+{
+    if(!pimpl->write(msg_out.buf.get(), msg_out.len, std::chrono::milliseconds(timeout_ms)))
+    {
+        return Error::HardwareError;
+    }
+    
+    return Error::OK;
+}
+
+template class llc::transport::SPIIO<false,false>;
+template class llc::transport::SPIIO<false,true>;
+template class llc::transport::SPIIO<true,false>;
+template class llc::transport::SPIIO<true,true>;

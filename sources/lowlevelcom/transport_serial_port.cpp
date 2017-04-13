@@ -42,7 +42,7 @@
 #include <misccpp/lowlevelcom/transport/transport_serial_port.hpp>
 #include <misccpp/lowlevelcom/cobs.hpp>
 
-llc::transport::lowlevel::SerialPort::SerialPort(const std::string& a_ttydev, int a_baudrate, bool ause_cobs, std::size_t acobs_buf_size) : 
+llc::transport::lowlevel::SerialPort::SerialPort(const char* a_ttydev, int a_baudrate, bool ause_cobs, std::size_t acobs_buf_size) : 
     pimpl(new drivers::SerialPort()), 
     use_cobs(ause_cobs), 
     cobs_buf_size(acobs_buf_size),
@@ -61,7 +61,7 @@ llc::transport::lowlevel::SerialPort::~SerialPort()
     
 }
     
-llc::Error llc::transport::lowlevel::SerialPort::transmit(const void* ptr, std::size_t len, int timeout)
+llc::Error llc::transport::lowlevel::SerialPort::transmit(const void* ptr, PayloadLengthT len, int timeout)
 {
     if(use_cobs)
     {
@@ -113,7 +113,7 @@ llc::Error llc::transport::lowlevel::SerialPort::transmitComplete(llc::ChannelID
     return Error::OK;
 }
 
-llc::Error llc::transport::lowlevel::SerialPort::receive(void* ptr, std::size_t len, int timeout)
+llc::Error llc::transport::lowlevel::SerialPort::receive(void* ptr, PayloadLengthT len, int timeout)
 {
     if(!use_cobs)
     {
@@ -138,7 +138,7 @@ llc::Error llc::transport::lowlevel::SerialPort::receive(void* ptr, std::size_t 
 
 // NOTE because of the RawIO design, if COBS then we receive the whole packet here to be able
 // to decode before multiple receive calls (for PayloadLengthT, ChannelIDT, NodeIDT and CRCT optionally).
-llc::Error llc::transport::lowlevel::SerialPort::receiveStart(int timeout)
+llc::Error llc::transport::lowlevel::SerialPort::receiveStart(PayloadLengthT& len, ChannelIDT& chan_id, NodeIDT& node_id, int timeout)
 {
     bytes_received = 0;
     read_idx = 0;

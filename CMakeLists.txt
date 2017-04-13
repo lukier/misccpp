@@ -82,6 +82,9 @@ message("Project: ${PROJECT_NAME} / ${${PROJECT_NAME}_VERSION}, build type: ${CM
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED QUIET)
+
 find_package(cereal QUIET)
 set(HAVE_CEREAL ${cereal_FOUND})
 
@@ -94,7 +97,7 @@ set(HAVE_NANOMSG ${NANOMSG_FOUND})
 find_package(Snappy QUIET)
 set(HAVE_SNAPPY ${SNAPPY_FOUND})
 
-find_package(LibUSB QUIET)
+find_package(LibUSB REQUIRED)
 set(HAVE_LIBUSB ${LibUSB_FOUND})
 
 if(NOT DEFINED ENABLE_NETLINK)
@@ -123,6 +126,9 @@ set(HEADERS
 include/misccpp/BufferDecode.hpp
 include/misccpp/BufferEncode.hpp
 include/misccpp/drivers/SerialPort.hpp
+include/misccpp/drivers/DevI2C.hpp
+include/misccpp/drivers/DevSPI.hpp
+include/misccpp/drivers/SocketCAN.hpp
 include/misccpp/lowlevelcom/bridge.hpp
 include/misccpp/lowlevelcom/bridge_linux.hpp
 include/misccpp/lowlevelcom/cobs.hpp
@@ -139,6 +145,9 @@ include/misccpp/lowlevelcom/utils.hpp
 
 set(SOURCES
 sources/drivers/SerialPort.cpp
+sources/drivers/DevI2C.cpp
+sources/drivers/DevSPI.cpp
+sources/drivers/SocketCAN.cpp
 sources/lowlevelcom/lowlevelcom.cpp
 sources/lowlevelcom/transport_can.cpp
 sources/lowlevelcom/transport_i2c.cpp
@@ -166,8 +175,8 @@ if(HAVE_CEREAL)
 endif()
 
 if(HAVE_LIBUSB)
-    list(APPEND HEADERS include/misccpp/lowlevelcom/transport/transport_usb.hpp)
-    list(APPEND SOURCES sources/lowlevelcom/transport_usb.cpp)
+    list(APPEND HEADERS include/misccpp/drivers/DevUSB.hpp include/misccpp/lowlevelcom/transport/transport_usb.hpp)
+    list(APPEND SOURCES sources/drivers/DevUSB.cpp sources/lowlevelcom/transport_usb.cpp)
 endif()
 
 if(HAVE_LIBNL)
@@ -183,6 +192,8 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
     PRIVATE sources)
+    
+target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads)
     
 if(HAVE_ZEROMQ)
     target_link_libraries(${PROJECT_NAME} PUBLIC ${ZEROMQ_LIBRARIES})

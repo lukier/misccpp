@@ -51,11 +51,11 @@ namespace transport
 template<typename ... ZMQIOS>
 class ZeroMQIOPoller;
     
-template<AccessT OurAccess = AccessT::RW, bool MultiChannel = false, bool MultiNode = false>
+template<bool MultiChannel = false, bool MultiNode = false>
 class ZeroMQIO
 {
 public:
-    static constexpr AccessT Access = OurAccess;
+    static constexpr bool NeedsKnownInputMessage = false;
     static constexpr bool IsMultiChannel = MultiChannel;
     static constexpr bool IsMultiNode = MultiNode;
     
@@ -63,21 +63,20 @@ public:
     {
     public:
         typedef std::function<void(void*)> DeleterT;
+        static constexpr std::size_t PrefixRequired = internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<IsMultiNode>::size;
         
         // default constructor
         explicit message_t() { }
         
         // allocation constructor
-        explicit message_t(std::size_t l, ChannelIDT cid = 0, NodeIDT nid = 0) : msg(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size + l)
+        explicit message_t(std::size_t l, ChannelIDT cid = 0, NodeIDT nid = 0) : msg(PrefixRequired + l)
         { 
             setChannelID(cid);
             setNodeID(nid);
         }
         
-        static constexpr std::size_t PrefixRequired = internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size;
-        
         // zerocopy constructor
-        explicit message_t(void* data, std::size_t l, DeleterT& cb, ChannelIDT cid = 0, NodeIDT nid = 0) : msg(data, internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size + l, &message_t::zerocopy_free_proxy, &cb)
+        explicit message_t(void* data, std::size_t l, DeleterT& cb, ChannelIDT cid = 0, NodeIDT nid = 0) : msg(data, PrefixRequired + l, &message_t::zerocopy_free_proxy, &cb)
         { 
             setChannelID(cid);
             setNodeID(nid);
@@ -97,26 +96,26 @@ public:
         inline ~message_t() {  }
         
         // access
-        inline const void* data() const { return static_cast<void*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size)); }
-        inline void* data() { return static_cast<void*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size + internal::NodeIDSize<MultiNode>::size)); }
-        inline std::size_t size() const { return msg.size() - internal::ChannelIDSize<MultiChannel>::size - internal::NodeIDSize<MultiNode>::size; }
+        inline const void* data() const { return static_cast<const void*>(getBufferAt(PrefixRequired)); }
+        inline void* data() { return static_cast<void*>(getBufferAt(PrefixRequired)); }
+        inline std::size_t size() const { return msg.size() - PrefixRequired; }
         
         // has data?
         inline operator bool () const noexcept { return msg.data() != 0; }
         
         inline void swap(message_t& m) noexcept { std::swap(msg, m.msg); }
         
-        static inline constexpr bool supportsChannelID() { return MultiChannel; }
+        static inline constexpr bool supportsChannelID() { return IsMultiChannel; }
         // optional ChannelID get
-        ChannelIDT getChannelID() const { if(MultiChannel) { return *static_cast<ChannelIDT*>(getBufferAt(0)); } else { return 0; } }
+        ChannelIDT getChannelID() const { if(IsMultiChannel) { return *static_cast<const ChannelIDT*>(getBufferAt(0)); } else { return 0; } }
         // optional ChannelID set
-        inline void setChannelID(ChannelIDT n) { if(MultiChannel) { *static_cast<ChannelIDT*>(getBufferAt(0)) = n; } }
+        inline void setChannelID(ChannelIDT n) { if(IsMultiChannel) { *static_cast<ChannelIDT*>(getBufferAt(0)) = n; } }
         
-        static inline constexpr bool supportsNodeID() { return MultiNode; }
+        static inline constexpr bool supportsNodeID() { return IsMultiNode; }
         // optional NodeID get
-        NodeIDT getNodeID() const { if(MultiNode) { return *static_cast<NodeIDT*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size)); } else { return 0; } }
+        NodeIDT getNodeID() const { if(IsMultiNode) { return *static_cast<const NodeIDT*>(getBufferAt(internal::ChannelIDSize<IsMultiChannel>::size)); } else { return 0; } }
         // optional NodeID set
-        inline void setNodeID(NodeIDT n) { if(MultiNode) { *static_cast<NodeIDT*>(getBufferAt(internal::ChannelIDSize<MultiChannel>::size)) = n; } }
+        inline void setNodeID(NodeIDT n) { if(IsMultiNode) { *static_cast<NodeIDT*>(getBufferAt(internal::ChannelIDSize<IsMultiChannel>::size)) = n; } }
         
     private:
         friend class ZeroMQIO; // for raw access
@@ -136,7 +135,8 @@ public:
                 }
             }
         }
-        inline void* getBufferAt(std::size_t offset) const  { return static_cast<void*>(&(static_cast<uint8_t*>(msg.data())[offset])); }
+        inline const void* getBufferAt(std::size_t offset) const { return static_cast<const void*>(&(static_cast<uint8_t*>(msg.data())[offset])); }
+        inline void* getBufferAt(std::size_t offset) { return static_cast<void*>(&(static_cast<uint8_t*>(msg.data())[offset])); }
         
         mutable zmq::message_t msg;
     };
@@ -156,22 +156,24 @@ public:
     // move assignment
     inline ZeroMQIO& operator=(ZeroMQIO&& m) noexcept { socket = std::move(m.socket); return *this; }
     
-    Error receive(message_t& msg_out, int timeout = 0)
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error receive(message_t& msg_out, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
-        if((Access == AccessT::W)) { return Error::Unsupported; }
+        int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
         
-        if(timeout == 0) { timeout = -1;} 
-        socket.setsockopt(ZMQ_RCVTIMEO, &timeout, sizeof(int));
+        if(timeout_ms == 0) { timeout_ms = -1;} 
+        socket.setsockopt(ZMQ_RCVTIMEO, &timeout_ms, sizeof(int));
         socket.recv(&msg_out.raw_message());
         return Error::OK;
     }
     
-    Error transmit(const message_t& msg, int timeout = 0)
+    template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
+    Error transmit(const message_t& msg, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
-        if((Access == AccessT::R)) { return Error::Unsupported; }
+        int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
         
-        if(timeout == 0) { timeout = -1;} 
-        socket.setsockopt(ZMQ_SNDTIMEO, &timeout, sizeof(int));
+        if(timeout_ms == 0) { timeout_ms = -1;} 
+        socket.setsockopt(ZMQ_SNDTIMEO, &timeout_ms, sizeof(int));
         socket.send(msg.raw_message());
         return Error::OK;
     }

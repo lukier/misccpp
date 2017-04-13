@@ -29,7 +29,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * ****************************************************************************
- * Linux I2C based low level transport.
+ * Linux i2c-dev based transport.
  * ****************************************************************************
  */
 #include <string>
@@ -37,66 +37,56 @@
 #include <stdexcept>
 #include <cstring>
 
-#include <fcntl.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/ioctl.h>
-#include <linux/i2c-dev.h>
+#include <misccpp/drivers/DevI2C.hpp>
 
 #include <misccpp/lowlevelcom/transport/transport_i2c.hpp>
 
-llc::transport::lowlevel::I2C::I2C(const char* dev_path, bool addr10b) : port_fd(-1)
+template<bool MultiChannel>
+llc::transport::I2CIO<MultiChannel>::I2CIO(const char* port, bool addr10b) : tx_i2c_addr(0), pimpl(new drivers::DevI2C())
 {
-    port_fd = ::open(dev_path, O_RDWR);
-    if(port_fd < 0) return;
-    
-    unsigned long tenbit = (addr10b == true ? 1 : 0);
-    if(::ioctl(port_fd, I2C_TENBIT, &tenbit) < 0)
-    {
-        ::close(port_fd);
-        port_fd = -1;
-        return;
-    }
+    pimpl->open(port, (addr10b == true ? drivers::DevI2C::AddressSupport::bits10 : drivers::DevI2C::AddressSupport::bits7));
 }
 
-llc::transport::lowlevel::I2C::~I2C()
+template<bool MultiChannel>
+llc::transport::I2CIO<MultiChannel>::~I2CIO()
 {
-    if(port_fd != -1)
-    {
-        ::close(port_fd);
-    }
+    
 }
 
-// TODO: what about RDWR?
-    
-llc::Error llc::transport::lowlevel::I2C::transmit(const void* ptr, std::size_t len, int timeout)
+template<bool MultiChannel>
+llc::Error llc::transport::I2CIO<MultiChannel>::receiveImpl(message_t& msg_out, const int timeout_ms)
 {
-    if(port_fd < 0) { return Error::HardwareError; }
+    // msg_out must contain info (length) beforehand for packet based IO
+    if(!msg_out) { return Error::OutOfMemory; }
     
-    if(write(port_fd, ptr, len) == (ssize_t)len)
-    {
-        return Error::OK;
-    }
-    else
-    { 
-        return Error::HardwareError; 
-    }
-}
-
-llc::Error llc::transport::lowlevel::I2C::transmitStart(llc::ChannelIDT chan_id, llc::NodeIDT node_id, int timeout)
-{
-    if(port_fd < 0) { return Error::HardwareError; }
-    
-    const unsigned long timeout_10ms = timeout / 10;
-    const unsigned long i2caddr = node_id; // NOTE NodeID is I2C address
-    
-    if(::ioctl(port_fd, I2C_TIMEOUT, &timeout_10ms) < 0)
+    if(!pimpl->setSlaveAddress(tx_i2c_addr))
     {
         return Error::HardwareError;
     }
     
-    if(::ioctl(port_fd, I2C_SLAVE, &i2caddr) < 0)
+    msg_out.setNodeID(tx_i2c_addr);
+    
+    if(!pimpl->read(msg_out.buf.get(), message_t::PrefixRequired + msg_out.len, std::chrono::milliseconds(timeout_ms)))
+    {
+        return Error::HardwareError;
+    }
+    
+    tx_i2c_addr = 0;
+    
+    return Error::OK;
+}
+
+template<bool MultiChannel>
+llc::Error llc::transport::I2CIO<MultiChannel>::transmitImpl(const message_t& msg_out, const int timeout_ms)
+{
+    tx_i2c_addr = msg_out.getNodeID();
+    
+    if(!pimpl->setSlaveAddress(tx_i2c_addr))
+    {
+        return Error::HardwareError;
+    }
+    
+    if(!pimpl->write(msg_out.buf.get(), message_t::PrefixRequired + msg_out.len, std::chrono::milliseconds(timeout_ms)))
     {
         return Error::HardwareError;
     }
@@ -104,43 +94,6 @@ llc::Error llc::transport::lowlevel::I2C::transmitStart(llc::ChannelIDT chan_id,
     return Error::OK;
 }
 
-llc::Error llc::transport::lowlevel::I2C::transmitReset()
-{
-    return Error::OK;
-}
 
-llc::Error llc::transport::lowlevel::I2C::transmitComplete(llc::ChannelIDT chan_id, llc::NodeIDT node_id, int timeout)
-{
-    return Error::OK;
-}
-
-llc::Error llc::transport::lowlevel::I2C::receive(void* ptr, std::size_t len, int timeout)
-{
-    // TODO FIXME RawIO design will call this twice (PayloadLengthT)! Need to redesign.
-    
-    if(port_fd < 0) { return Error::HardwareError; }
-    
-    if(read(port_fd, ptr, len) == (ssize_t)len)
-    {
-        return Error::OK;
-    }
-    else
-    { 
-        return Error::HardwareError; 
-    }
-}
-
-llc::Error llc::transport::lowlevel::I2C::receiveStart(int timeout)
-{
-    return Error::OK;
-}
-
-llc::Error llc::transport::lowlevel::I2C::receiveReset()
-{
-    return Error::OK;
-}
-
-llc::Error llc::transport::lowlevel::I2C::receiveComplete(int timeout)
-{
-    return Error::OK;
-}
+template class llc::transport::I2CIO<true>;
+template class llc::transport::I2CIO<false>;
