@@ -139,6 +139,4 @@ private:
     size_type buffer_size_;
 };
 
-}
-
 #endif // MISCCPP_LOCK_FREE_FIFO_HPP

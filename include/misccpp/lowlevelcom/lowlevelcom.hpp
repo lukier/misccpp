@@ -36,10 +36,10 @@
 #include <misccpp/lowlevelcom/mux.hpp>
 #include <misccpp/lowlevelcom/bridge.hpp>
 #include <misccpp/lowlevelcom/cobs.hpp>
-#include <misccpp/lowlevelcom/boost_crc.hpp>
 #include <misccpp/lowlevelcom/transport/transport_raw.hpp>
 
 #ifdef __linux__
+#include <misccpp/lowlevelcom/boost_crc.hpp>
 #include <misccpp/lowlevelcom/bridge_linux.hpp>
 #include <misccpp/lowlevelcom/mux_linux.hpp>
 #include <misccpp/lowlevelcom/transport/transport_can.hpp>
