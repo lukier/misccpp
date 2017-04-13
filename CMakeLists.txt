@@ -125,6 +125,7 @@ endif()
 set(HEADERS
 include/misccpp/BufferDecode.hpp
 include/misccpp/BufferEncode.hpp
+include/misccpp/File.hpp
 include/misccpp/drivers/SerialPort.hpp
 include/misccpp/drivers/DevI2C.hpp
 include/misccpp/drivers/DevSPI.hpp

@@ -106,7 +106,7 @@ public:
         }
         
         // move constructor
-        inline message_t(message_t&& m) noexcept : buf(m.buf), len(m.len) { m.buf = 0; m.len = 0; }
+        inline message_t(message_t&& m) noexcept : buf(std::move(m.buf)), len(m.len) { m.len = 0; }
         
         // move assignment
         inline message_t& operator=(message_t&& m) noexcept { m.swap(*this); return *this; }
