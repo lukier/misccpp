@@ -126,6 +126,7 @@ set(HEADERS
 include/misccpp/BufferDecode.hpp
 include/misccpp/BufferEncode.hpp
 include/misccpp/File.hpp
+include/misccpp/endian.hpp
 include/misccpp/NanoPB.hpp
 include/misccpp/lock_free_fifo.hpp
 include/misccpp/drivers/SerialPort.hpp
