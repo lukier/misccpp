@@ -59,35 +59,38 @@ public:
     bool isOpen();
     void close();
     
+    inline uint8_t getEndpointIN() const { return ep_in; }
+    inline uint8_t getEndpointOUT() const { return ep_out; }
+    
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
-    bool readControl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    int readControl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         return readControlImpl(bmRequestType, bRequest, wValue, wIndex, dst, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
     
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
-    bool writeControl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    int writeControl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         return writeControlImpl(bmRequestType, bRequest, wValue, wIndex, src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
 
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
-    bool read(void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    int read(void* dst, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         return readBulkImpl(dst, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
     
     template<typename _Rep = int64_t, typename _Period = std::ratio<1>>
-    bool write(const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
+    int write(const void* src, std::size_t count, const std::chrono::duration<_Rep, _Period>& timeout = std::chrono::seconds(0))
     {
         return writeBulkImpl(src, count, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
     }
 
 private:
-    bool readBulkImpl(void* dst, std::size_t count, const uint32_t timeout_ms);
-    bool writeBulkImpl(const void* src, std::size_t count, const uint32_t timeout_ms);
-    bool readControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const uint32_t timeout_ms);
-    bool writeControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const uint32_t timeout_ms);
+    int readBulkImpl(void* dst, std::size_t count, const uint32_t timeout_ms);
+    int writeBulkImpl(const void* src, std::size_t count, const uint32_t timeout_ms);
+    int readControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const uint32_t timeout_ms);
+    int writeControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const uint32_t timeout_ms);
     
     uint8_t ep_in, ep_out;
     int interface_number;

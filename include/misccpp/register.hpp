@@ -159,16 +159,30 @@ private:
 };
 
 /**
- * Static Typed bitfield operator.
+ * Static Bitfield Info. No type yet.
  */
-template<typename BT, std::size_t bitpos, std::size_t bitcount, typename DataType = volatile uint32_t>
-class static_bitfield
+template<std::size_t bitpos, std::size_t bitcount, typename DT = volatile uint32_t>
+class bitfield_info
 {
 public:
-    typedef volatile BT BaseType;
-    
+    typedef DT DataType;
     static constexpr inline std::size_t position() { return bitpos; }
     static constexpr inline std::size_t width() { return bitcount; }
+};
+
+/**
+ * Static Typed bitfield operator.
+ */
+template<typename BT, typename BFI>
+class static_bitfield 
+{
+public:
+    typedef BFI BitFieldInfo;
+    typedef typename BitFieldInfo::DataType DataType;
+    typedef volatile BT BaseType;
+    
+    static constexpr inline std::size_t position() { return BitFieldInfo::position(); }
+    static constexpr inline std::size_t width() { return BitFieldInfo::width(); }
     
     template<typename T>
     static inline BaseType read(const T& reg) 

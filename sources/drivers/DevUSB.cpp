@@ -181,71 +181,67 @@ void drivers::DevUSB::close()
     }
 }
 
-bool drivers::DevUSB::readBulkImpl(void* dst, std::size_t count, const uint32_t timeout_ms)
+int drivers::DevUSB::readBulkImpl(void* dst, std::size_t count, const uint32_t timeout_ms)
 {
-    if(!isOpen()) { return false; }
+    if(!isOpen()) { return -1; }
     
     if(ep_in != 0xFF)
     {
         int rx_actual_transfer = 0;
         int r = libusb_bulk_transfer(devh, ep_in, (unsigned char*)dst, count, &rx_actual_transfer, timeout_ms);
-        if((r != 0) || (rx_actual_transfer == (int)count))
+        if(r == 0)
         {
-            return false;
+            return rx_actual_transfer;
+        }
+        else
+        {
+            return r;
         }
     }
     else
     {
-        return false;
+        return -1;
     }
      
-    return true;
+    return -1;
 }
 
-bool drivers::DevUSB::writeBulkImpl(const void* src, std::size_t count, const uint32_t timeout_ms)
+int drivers::DevUSB::writeBulkImpl(const void* src, std::size_t count, const uint32_t timeout_ms)
 {
-    if(!isOpen()) { return false; }
+    if(!isOpen()) { return -1; }
     
     if(ep_out != 0xFF)
     {
         int tx_actual_transfer = 0;
         int r = libusb_bulk_transfer(devh, ep_out, (unsigned char*)src, count, &tx_actual_transfer, timeout_ms);
-        if((r != 0) || (tx_actual_transfer != (int)count))
+        if(r == 0)
         {
-            return false;
+            return tx_actual_transfer;
+        }
+        else
+        {
+            return r;
         }
     }
     else
     {
-        return false;
+        return -1;
     }
     
-    return true;
+    return -1;
 }
 
-bool drivers::DevUSB::readControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const uint32_t timeout_ms)
+int drivers::DevUSB::readControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, void* dst, std::size_t count, const uint32_t timeout_ms)
 {
-    if(!isOpen()) { return false; }
+    if(!isOpen()) { return -1; }
     
-    int bytes_read = libusb_control_transfer(devh, LIBUSB_ENDPOINT_IN | bmRequestType, bRequest, wValue, wIndex, (unsigned char*)dst, count, timeout_ms);
-    if(bytes_read != (int)count)
-    {
-        return false;
-    }
-
-    return true;
+    return libusb_control_transfer(devh, LIBUSB_ENDPOINT_IN | bmRequestType, bRequest, wValue, wIndex, (unsigned char*)dst, count, timeout_ms);
 }
 
-bool drivers::DevUSB::writeControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const uint32_t timeout_ms)
+int drivers::DevUSB::writeControlImpl(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, const void* src, std::size_t count, const uint32_t timeout_ms)
 {
-    if(!isOpen()) { return false; }
+    if(!isOpen()) { return -1; }
     
-    int bytes_written = libusb_control_transfer(devh, LIBUSB_ENDPOINT_OUT | bmRequestType, bRequest, wValue, wIndex, (unsigned char*)src, count, timeout_ms);
-    if(bytes_written != (int)count)
-    {
-        return false;
-    }
-    
-    return true;
+    return libusb_control_transfer(devh, LIBUSB_ENDPOINT_OUT | bmRequestType, bRequest, wValue, wIndex, (unsigned char*)src, count, timeout_ms);
 }
 
