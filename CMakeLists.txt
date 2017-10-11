@@ -131,6 +131,7 @@ include/misccpp/NanoPB.hpp
 include/misccpp/lock_free_fifo.hpp
 include/misccpp/drivers/SerialPort.hpp
 include/misccpp/drivers/DevI2C.hpp
+include/misccpp/drivers/DevGPIO.hpp
 include/misccpp/drivers/DevSPI.hpp
 include/misccpp/drivers/SocketCAN.hpp
 include/misccpp/lowlevelcom/bridge.hpp
@@ -151,6 +152,7 @@ set(SOURCES
 sources/drivers/SerialPort.cpp
 sources/drivers/DevI2C.cpp
 sources/drivers/DevSPI.cpp
+sources/drivers/DevGPIO.cpp
 sources/drivers/SocketCAN.cpp
 sources/lowlevelcom/lowlevelcom.cpp
 sources/lowlevelcom/transport_can.cpp
