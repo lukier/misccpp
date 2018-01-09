@@ -37,6 +37,7 @@
 
 #include <array>
 #include <tuple>
+#include <functional>
 
 #include <misccpp/zmq.hpp>
 
